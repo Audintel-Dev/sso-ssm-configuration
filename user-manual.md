@@ -18,7 +18,7 @@ git clone https://github.com/Audintel-Dev/sso-ssm-configuration.git
 ## 📂 2. Navigate to Project Folder
 
 ```bash
-cd ssm-sso
+cd sso-ssm-configuration
 ```
 
 ### 👉 For Windows Users
