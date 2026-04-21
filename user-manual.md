@@ -1,5 +1,12 @@
 # 📘 SSO-SSM User Manual
 
+This document gives step-by-step guidelines to set-up AWS SSO along with Systems Sessions Manager using CLI commands.  This will enable SSH access of EC2 instances and RDS instances in the UAT and PROD accounts of the company.
+
+Pre-requisites for this to work are:
+(1) You must have a github account on company's email account ({name}@audintel.in) and must have been admitted into the company's Github organization, Audintel-Dev.
+
+(2) You must have access to AWS accounts of the company, which permission sets assigned to you in UAT and PROD accounts
+
 ## 🚀 1. Clone the Repository
 
 Open your terminal:
@@ -12,10 +19,21 @@ Run:
 ```bash
 git clone https://github.com/Audintel-Dev/sso-ssm-configuration.git
 ```
+You will be prompted for user-name and password.  
+
+For Username, give your email-id with company's domain, i.e. {name}@audintel.in OR Give the exact Github name connected to this email-id.
+
+For password, give the PAT token created for your above Github account.  Please note that Github DOES NOT accept Github console login password for this CLI prompted password.  
+
+Note: If you do not have the password then you must create the PAT token as follows.  Go to your profile (NOT THE company's organization, Audintel-Dev) in Github Console. Go to settings > Developer Settings > Fine grained tokens (or) Classic Tokens.  Create the token with some suitable name without expiration date.  Copy and save the PAT token.  This is your personal password to your Github account.
+
+Note:  If still you are not able to clone after giving the correct username and the password, then it means your ID has not been given access permissions to this repo.  Please contact the DevOps Team.
 
 ---
 
 ## 📂 2. Navigate to Project Folder
+
+After successfully cloning the repo on your system, do:
 
 ```bash
 cd sso-ssm-configuration
@@ -43,7 +61,7 @@ bash install.sh
 
 ---
 
-## 🔐 3. Configure AWS SSO
+## 🔐 3. Configure AWS SSO  (FOR UAT)
 
 Run:
 
@@ -104,6 +122,8 @@ Audintel@UAT, raghu@audintel.in (670307493739)
 * **UAT setup → choose UAT account**
 * **Prod setup → choose Production account**
 
+**Here you should choose the UAT account.**
+
 ---
 
 ## 🔑 7. Select Permission Set
@@ -111,10 +131,11 @@ Audintel@UAT, raghu@audintel.in (670307493739)
 You may see options like:
 
 ```
-uat-bastion-ssh-access
+uat-developers-access
+ReadOnlyAccess
 ViewOnlyAccess
 uat-DBA-permissions
-Billing
+
 ```
 
 👉 Choose the permission set based on your access needs:
@@ -134,12 +155,112 @@ Billing
 ```bash
 aws sts get-caller-identity --profile uat
 ```
+**Expected Output:**
+
+```json
+{
+    "UserId": "AROAW3NOIC3UKPHXZRX54:sivaramakrishna.konka@audintel.in",
+    "Account": "670307493739",
+    "Arn": "arn:aws:sts::670307493739:assumed-role/AWSReservedSSO_CustomDevOpsPermissions_c8e8bb7ee530af45/sivaramakrishna.konka@audintel.in"
+}
+```
+---
+
+## 🔁 10. Repeat Steps to Configure AWS SSO (For PROD)
+
+Repeat the same steps with these changes:
+
+Run:
+
+```bash
+aws configure sso
+```
+
+### Enter the following details:
+
+* **SSO session name**: `prod`
+* **SSO start URL**:
+
+  ```
+  https://d-9f676488e3.awsapps.com/start/
+  ```
+* **SSO region**: `ap-south-1`
+* **SSO registration scopes**: Press **Enter**
 
 ---
 
-## 🔁 10. Repeat for Production
+## 🌐 11. Browser Authentication
 
-Repeat the same steps with these changes:
+* A browser window will open
+* Click **Allow Access**
+
+📸 Reference:
+![Browser Login](browser.png)
+
+---
+
+## ✅ 12. Authentication Response
+
+After login, you will see confirmation:
+
+📸 Reference:
+![Auth Response](auth-res.png)
+
+---
+
+## 🏢 13. Select AWS Account
+
+You will see two accounts:
+
+### 🔹 Production Account
+
+```
+Raghavendra Sinha, raghu@audintel.com (471201224424)
+```
+
+### 🔹 UAT Account
+
+```
+Audintel@UAT, raghu@audintel.in (670307493739)
+```
+
+👉 Select based on your use case:
+
+**Here you should choose the Production account.**
+
+---
+
+## 🔑 14. Select Permission Set
+
+You may see options like:
+
+```
+prod-spring-developers-access
+ReadOnlyAccess
+ViewOnlyAccess
+prod-DBA-permissions
+
+```
+
+👉 Choose the permission set based on your access needs:
+
+---
+
+## ⚙️ 15. Final Configuration Inputs
+
+* **Default client region**: `us-east-1`
+* **CLI output format**: `json`
+* **Profile name**: `prod`
+
+---
+
+## 🧪 16. Verify Configuration
+
+```bash
+aws sts get-caller-identity --profile prod
+```
+
+---
 
 * Select **Production account**:
 
@@ -153,30 +274,12 @@ Repeat the same steps with these changes:
 
 ---
 
-## 🧪 11. Verify the Configuration
+## 🧪 17. Verify the Configuration
 
 ### 🔹 Check Production Profile
 
 ```bash
 aws sts get-caller-identity --profile prod
-```
-
-**Expected Output:**
-
-```json
-{
-    "UserId": "AROAW3NOIC3UKPHXZRX54:sivaramakrishna.konka@audintel.in",
-    "Account": "471201224424",
-    "Arn": "arn:aws:sts::471201224424:assumed-role/AWSReservedSSO_CustomDevOpsPermissions_c8e8bb7ee530af45/sivaramakrishna.konka@audintel.in"
-}
-```
-
----
-
-### 🔹 Check UAT Profile
-
-```bash
-aws sts get-caller-identity --profile uat
 ```
 
 **Expected Output:**
