@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Ensure bash
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "Please run with bash"
+  exit 1
+fi
+
+PROFILE="${1:?Usage: instances <uat|prod>}"
+
+# ── Region ────────────────────────────────────────────────
+REGION=$(aws configure get region --profile "$PROFILE" 2>/dev/null || echo "us-east-1")
+
+# ── SSO login ─────────────────────────────────────────────
+aws sts get-caller-identity --profile "$PROFILE" &>/dev/null \
+  || aws sso login --profile "$PROFILE"
+
+# ── Fetch instances (Linux only) ──────────────────────────
+instances=$(aws ec2 describe-instances \
+  --profile "$PROFILE" \
+  --region "$REGION" \
+  --filters \
+    "Name=instance-state-name,Values=running" \
+    "Name=platform-details,Values=Linux/UNIX" \
+  --query "Reservations[].Instances[].{
+    Name:Tags[?Key=='Name']|[0].Value,
+    Id:InstanceId,
+    ImageId:ImageId
+  }" \
+  --output json)
+
+[[ "$instances" == "[]" ]] && { echo "No running Linux instances found"; exit 1; }
+
+# ── Display instances ─────────────────────────────────────
+printf "%-4s %-40s %-22s\n" "No" "Instance Name" "Instance ID"
+
+i=1
+instance_ids=()
+instance_image_ids=()
+
+while IFS= read -r row; do
+  name=$(jq -r '.Name // "No-Name"' <<< "$row")
+  id=$(jq -r '.Id' <<< "$row")
+  image=$(jq -r '.ImageId' <<< "$row")
+
+  printf "%-4s %-40s %-22s\n" "$i" "$name" "$id"
+
+  instance_ids+=("$id")
+  instance_image_ids+=("$image")
+
+  ((i++))
+done <<< "$(echo "$instances" | jq -c '.[]')"
+
+# ── Select instance ───────────────────────────────────────
+echo ""
+read -rp "Select instance number: " choice
+
+INSTANCE_ID="${instance_ids[$((choice-1))]:-}"
+IMAGE_ID="${instance_image_ids[$((choice-1))]:-}"
+
+[[ -z "$INSTANCE_ID" ]] && { echo "Invalid selection"; exit 1; }
+
+INSTANCE_NAME=$(jq -r --arg id "$INSTANCE_ID" '.[] | select(.Id == $id) | .Name // "unknown"' <<< "$instances")
+
+# ── Get AMI Name (FAST AWS API) ───────────────────────────
+AMI_NAME=$(aws ec2 describe-images \
+  --image-ids "$IMAGE_ID" \
+  --region "$REGION" \
+  --query "Images[0].Name" \
+  --output text \
+  --profile "$PROFILE")
+
+# ── Detect user correctly ─────────────────────────────────
+if echo "$AMI_NAME" | grep -qi "ubuntu"; then
+  TARGET_USER="ubuntu"
+else
+  TARGET_USER="ec2-user"
+fi
+
+# ── Colors (FULL LINE) ────────────────────────────────────
+if [[ "$PROFILE" == "prod" ]]; then
+  ENV_COLOR="1;31"
+  EMOJI="🔴"
+  TAB_EMOJI="🚨"
+else
+  ENV_COLOR="1;32"
+  EMOJI="🟢"
+  TAB_EMOJI="✅"
+fi
+
+# ── Build PS1 ─────────────────────────────────────────────
+# RC_CONTENT="export PS1=\"\\[\\e]0;${TAB_EMOJI} [${PROFILE}] ${INSTANCE_NAME}\\a\\]\\[\\e[${ENV_COLOR}m\\]${EMOJI} [${PROFILE}][${INSTANCE_NAME}] [\\u@\\h \\W]\\\\\\$\\[\\e[0m\\] \""
+
+RC_CONTENT="# SSM_PROMPT_INJECTED
+unset PROMPT_COMMAND
+unset color_prompt
+unset force_color_prompt
+export PS1=\"\\[\\e]0;${TAB_EMOJI} [${PROFILE}] ${INSTANCE_NAME}\\a\\]\\[\\e[${ENV_COLOR}m\\]${EMOJI} [${PROFILE}][${INSTANCE_NAME}] [\\u@\\h \\W]\\\\\\$\\[\\e[0m\\] \""
+
+B64=$(printf '%s' "$RC_CONTENT" | base64 | tr -d '\n')
+
+
+# ── Prompt injection script ───────────────────────────────
+FIX_SCRIPT='#!/bin/bash
+
+# Skip if already configured
+if grep -q "SSM_PROMPT_INJECTED" /etc/profile.d/ssm_prompt.sh 2>/dev/null; then
+  exit 0
+fi
+
+# Disable default ubuntu prompt coloring (IMPORTANT)
+sed -i "s/^force_color_prompt=yes/force_color_prompt=no/" /home/ubuntu/.bashrc 2>/dev/null || true
+sed -i "s/^force_color_prompt=yes/force_color_prompt=no/" /root/.bashrc 2>/dev/null || true
+
+# Write prompt
+echo PLACEHOLDER_B64 | base64 -d > /etc/profile.d/ssm_prompt.sh
+chmod +x /etc/profile.d/ssm_prompt.sh
+
+# Ensure it loads last
+for f in /home/ubuntu/.bashrc /root/.bashrc; do
+  if [ -f "$f" ]; then
+    grep -q "SSM_PROMPT_INJECTED" "$f" || {
+      echo "" >> "$f"
+      echo "# SSM_PROMPT_INJECTED" >> "$f"
+      echo "source /etc/profile.d/ssm_prompt.sh" >> "$f"
+    }
+  fi
+done
+'
+
+FIX_SCRIPT="${FIX_SCRIPT//PLACEHOLDER_B64/$B64}"
+FIX_B64=$(printf '%s' "$FIX_SCRIPT" | base64 | tr -d '\n')
+
+# ── Inject prompt (ASYNC) ─────────────────────────────────
+echo "Configuring prompt (background)..."
+
+time aws ssm send-command \
+  --instance-ids "$INSTANCE_ID" \
+  --document-name "AWS-RunShellScript" \
+  --parameters "commands=[\"echo $FIX_B64 | base64 -d | bash\"]" \
+  --profile "$PROFILE" \
+  --region "$REGION" \
+  > /dev/null
+
+# ── Connect ───────────────────────────────────────────────
+echo "Connecting as $TARGET_USER..."
+
+time aws ssm start-session \
+  --target "$INSTANCE_ID" \
+  --profile "$PROFILE" \
+  --region "$REGION" \
+  --document-name AWS-StartInteractiveCommand \
+  --parameters "command=[\"sudo -u ${TARGET_USER} -i\"]"
+
