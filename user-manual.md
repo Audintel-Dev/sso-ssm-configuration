@@ -10,7 +10,7 @@ Open your terminal:
 Run:
 
 ```bash
-git clone https://github.com/Audintel-Dev/audintel-devops.git
+git clone https://github.com/Audintel-Dev/sso-ssm-configuration.git
 ```
 
 ---
