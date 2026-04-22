@@ -3,14 +3,14 @@
 set -euo pipefail
 
 PROFILE="${1:-}"
-SEARCH_TERM="${2:-}"   # partial DB name filter
+SEARCH_TERM="${2:-}"
 MAP_FILE="$HOME/.rds-map"
 
 [ -z "$PROFILE" ] && {
   echo "Usage:"
-  echo "  dbuat                -> start all uat DB tunnels"
-  echo "  dbuat aud            -> start only matching DBs"
-  echo "  dbprod trace         -> start matching prod DBs"
+  echo "  dbuat"
+  echo "  dbuat aud"
+  echo "  dbprod trace"
   exit 1
 }
 
@@ -22,7 +22,6 @@ MAP_FILE="$HOME/.rds-map"
 REGION=$(aws configure get region --profile "$PROFILE")
 REGION=${REGION:-us-east-1}
 
-# Ensure SSO login
 aws sts get-caller-identity --profile "$PROFILE" >/dev/null 2>&1 || \
 aws sso login --profile "$PROFILE"
 
@@ -42,14 +41,7 @@ JUMP=$(aws ec2 describe-instances \
 }
 
 echo "Using Jumphost: $JUMP"
-
-if [ -n "$SEARCH_TERM" ]; then
-  echo "Searching DBs matching: $SEARCH_TERM"
-else
-  echo "Starting all DB tunnels..."
-fi
-
-CURRENT_ENV=""
+echo ""
 
 # -----------------------------
 # FUNCTIONS
@@ -87,11 +79,13 @@ start_tunnel() {
   echo "⏳ Tunnel launching: $DB ($PORT)"
 }
 
-MATCH_FOUND=false
+# -----------------------------
+# Read matching DBs
+# -----------------------------
+CURRENT_ENV=""
+MATCHED_DBS=()
+MATCHED_PORTS=()
 
-# -----------------------------
-# PROCESS MAP FILE
-# -----------------------------
 while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
 
   DB=$(echo "$DB" | tr -d '\r' | xargs)
@@ -113,14 +107,62 @@ while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
   [[ "$DB" =~ ^# ]] && continue
   [[ "$CURRENT_ENV" != "$PROFILE" ]] && continue
 
-  # Partial match filtering
   if [[ -n "$SEARCH_TERM" ]]; then
     if ! echo "$DB" | grep -qi "$SEARCH_TERM"; then
       continue
     fi
   fi
 
-  MATCH_FOUND=true
+  MATCHED_DBS+=("$DB")
+  MATCHED_PORTS+=("$PORT")
+
+done < "$MAP_FILE"
+
+# No matches
+if [ ${#MATCHED_DBS[@]} -eq 0 ]; then
+  echo "❌ No matching databases found"
+  exit 1
+fi
+
+# -----------------------------
+# Show Table
+# -----------------------------
+printf "%-5s %-35s %-10s\n" "No" "Database Name" "Port"
+printf "%-5s %-35s %-10s\n" "-----" "-----------------------------------" "----------"
+
+for i in "${!MATCHED_DBS[@]}"; do
+  printf "%-5s %-35s %-10s\n" \
+    "$((i+1))" \
+    "${MATCHED_DBS[$i]}" \
+    "${MATCHED_PORTS[$i]}"
+done
+
+echo ""
+
+# -----------------------------
+# User Selection
+# -----------------------------
+read -rp "Enter DB number to connect (or type 'all'): " choice
+
+if [[ "$choice" == "all" ]]; then
+  SELECTED_INDEXES=("${!MATCHED_DBS[@]}")
+else
+  index=$((choice-1))
+
+  if [[ $index -lt 0 || $index -ge ${#MATCHED_DBS[@]} ]]; then
+    echo "❌ Invalid selection"
+    exit 1
+  fi
+
+  SELECTED_INDEXES=("$index")
+fi
+
+# -----------------------------
+# Start selected tunnels
+# -----------------------------
+for idx in "${SELECTED_INDEXES[@]}"; do
+  DB="${MATCHED_DBS[$idx]}"
+  PORT="${MATCHED_PORTS[$idx]}"
 
   ENDPOINT=$(aws rds describe-db-instances \
     --profile "$PROFILE" \
@@ -130,22 +172,14 @@ while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
     --output text)
 
   start_tunnel "$DB" "$PORT" "$ENDPOINT"
+done
 
-done < "$MAP_FILE"
-
-if [ "$MATCH_FOUND" = false ]; then
-  echo "❌ No matching databases found for: $SEARCH_TERM"
-  exit 1
-fi
-
-echo "----------------------------------------"
-echo "✅ Tunnel process completed"
+echo ""
+echo "--------------------------------------------"
+echo "✅ Tunnel setup completed"
 echo "Host: 127.0.0.1"
-echo "Verify:"
-echo "nc -zv localhost <port>"
-echo "----------------------------------------"
-
-
+echo "Verify: nc -zv localhost <port>"
+echo "--------------------------------------------"
 
 
 # #!/usr/bin/env bash
