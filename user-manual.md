@@ -3,6 +3,7 @@
 This document gives step-by-step guidelines to set-up AWS SSO along with Systems Sessions Manager using CLI commands.  This will enable SSH access of EC2 instances and RDS instances in the UAT and PROD accounts of the company.
 
 Pre-requisites for this to work are:
+
 (1) You must have a github account on company's email account ({name}@audintel.in) and must have been admitted into the company's Github organization, Audintel-Dev.
 
 (2) You must have access to AWS accounts of the company, which permission sets assigned to you in UAT and PROD accounts
@@ -25,9 +26,19 @@ For Username, give your email-id with company's domain, i.e. {name}@audintel.in 
 
 For password, give the PAT token created for your above Github account.  Please note that Github DOES NOT accept Github console login password for this CLI prompted password.  
 
-Note: If you do not have the password then you must create the PAT token as follows.  Go to your profile (NOT THE company's organization, Audintel-Dev) in Github Console. Go to settings > Developer Settings > Fine grained tokens (or) Classic Tokens.  Create the token with some suitable name without expiration date.  Copy and save the PAT token.  This is your personal password to your Github account.
+**Note:** 
 
-Note:  If still you are not able to clone after giving the correct username and the password, then it means your ID has not been given access permissions to this repo.  Please contact the DevOps Team.
+If you do not have the PAT token then you must create the PAT token as follows. 
+
+(i) Go to your profile (NOT THE company's organization, Audintel-Dev) in Github Console. 
+
+(ii) Go to settings > Developer Settings > Fine grained tokens (or) Classic Tokens.  
+
+(iii) Create the token with some suitable name without expiration date.  
+
+(iv) Copy and save the PAT token. This is your personal password to your Github account.
+
+**If still you are not able to clone after giving the correct username and the password, then it means your ID has not been given access permissions to this repo.  Please contact the DevOps Team.**
 
 ---
 
