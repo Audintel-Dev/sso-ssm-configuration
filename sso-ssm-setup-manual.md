@@ -1,6 +1,6 @@
 # 📘 SSO-SSM User Manual
 
-This document gives step-by-step guidelines to set-up AWS SSO along with Systems Sessions Manager using CLI commands.  This will enable SSH access of EC2 instances and RDS instances in the UAT and PROD accounts of the company.
+This document gives step-by-step guidelines to set-up AWS SSO along with AWS Systems Sessions Manager using CLI commands on your laptop / local system.  This enables SSH access to EC2 instances and RDS instances in the UAT and PROD accounts of the company, without the need of .pem files.
 
 Pre-requisites for this to work are:
 
