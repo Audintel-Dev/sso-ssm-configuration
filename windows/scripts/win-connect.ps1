@@ -93,21 +93,57 @@ $INSTANCE_ID = $inst.Id
 $INSTANCE_NAME = $inst.Name
 $IMAGE_ID = $inst.ImageId
 
-# ----------------------------
-# FAST OS DETECTION (AMI)
-# ----------------------------
-$AMI_NAME = aws ec2 describe-images `
-    --image-ids $IMAGE_ID `
-    --region $region `
-    --query "Images[0].Name" `
-    --output text `
-    --profile $PROFILE
+# # ----------------------------
+# # FAST OS DETECTION (AMI)
+# # ----------------------------
+# $AMI_NAME = aws ec2 describe-images `
+#     --image-ids $IMAGE_ID `
+#     --region $region `
+#     --query "Images[0].Name" `
+#     --output text `
+#     --profile $PROFILE
 
-if ($AMI_NAME -match "ubuntu") {
+# ----------------------------
+# DETECT OS USING SSM
+# ----------------------------
+
+Write-Host "Detecting OS..."
+
+$commandId = aws ssm send-command `
+    --instance-ids $INSTANCE_ID `
+    --document-name "AWS-RunShellScript" `
+    --parameters commands=["cat /etc/os-release"] `
+    --profile $PROFILE `
+    --region $region `
+    --query "Command.CommandId" `
+    --output text
+
+Start-Sleep -Seconds 3
+
+$osInfo = aws ssm get-command-invocation `
+    --command-id $commandId `
+    --instance-id $INSTANCE_ID `
+    --profile $PROFILE `
+    --region $region `
+    --query "StandardOutputContent" `
+    --output text
+
+# Write-Host "OS Info:`n$osInfo"
+
+# ----------------------------
+# DETERMINE TARGET USER
+# ----------------------------
+
+$osInfoLower = $osInfo.ToLower()
+
+if ($osInfoLower -match "ubuntu") {
     $TARGET_USER = "ubuntu"
-} else {
+}
+elseif ($osInfoLower -match "amzn" -or $osInfoLower -match "amazon") {
     $TARGET_USER = "ec2-user"
 }
+
+Write-Host "Using user: $TARGET_USER"
 
 # ----------------------------
 # PROMPT COLOR
