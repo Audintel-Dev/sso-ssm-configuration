@@ -80,7 +80,7 @@ INSTANCE_NAME=$(jq -r --arg id "$INSTANCE_ID" '.[] | select(.Id == $id) | .Name 
 #fi
 
 # ── Detect actual OS via SSM ──────────────────────────────
-echo "Detecting OS..."
+#echo "Detecting OS..."
 
 COMMAND_ID=$(aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
@@ -101,8 +101,8 @@ OS_INFO=$(aws ssm get-command-invocation \
   --query "StandardOutputContent" \
   --output text)
 
-echo "Detected OS info:"
-echo "$OS_INFO"
+#echo "Detected OS info:"
+#echo "$OS_INFO"
 
 # Determine correct login user
 if echo "$OS_INFO" | grep -qi "ubuntu"; then
