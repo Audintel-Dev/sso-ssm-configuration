@@ -90,7 +90,7 @@ New-Item -ItemType File -Force -Path $profilePath | Out-Null
 
 Write-Host "Updating PowerShell profile..."
 
-$block = @"
+$block = @'
 
 # >>> SSM_SETUP >>>
 
@@ -100,13 +100,13 @@ function aws-auto-login {
         return
     }
 
-     $profiles = aws configure list-profiles 2>$null
+    $profiles = aws configure list-profiles 2>$null
 
     if ($profiles -notcontains "uat") {
         Write-Host "Skipping uat (profile not configured)"
     } else {
         aws sts get-caller-identity --profile uat 2>$null | Out-Null
-        if (0 -ne 0) {
+        if ($LASTEXITCODE -ne 0) {
             Write-Host "Logging into uat..."
             aws sso login --profile uat
         } else {
@@ -114,11 +114,11 @@ function aws-auto-login {
         }
     }
 
-   if ($profiles -notcontains "prod") {
+    if ($profiles -notcontains "prod") {
         Write-Host "Skipping prod (profile not configured)"
     } else {
         aws sts get-caller-identity --profile prod 2>$null | Out-Null
-        if (0 -ne 0) {
+        if ($LASTEXITCODE -ne 0) {
             Write-Host "Logging into prod..."
             aws sso login --profile prod
         } else {
@@ -136,7 +136,8 @@ function dbprod { rds prod }
 function dbpc { db-pc }
 
 # <<< SSM_SETUP <<<
-"@
+
+'@
 
 if (Test-Path $profilePath) {
     $content = Get-Content $profilePath -Raw
