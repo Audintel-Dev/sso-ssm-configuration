@@ -1,12 +1,55 @@
 # 📘 SSO-SSM User Manual
 
-This document gives step-by-step guidelines to set-up AWS SSO along with AWS Systems Sessions Manager using CLI commands on your laptop / local system.  This enables SSH access to EC2 instances and RDS instances in the UAT and PROD accounts of the company, without the need of .pem files.
+This document provides step-by-step instructions to set up **AWS SSO** along with **AWS Systems Manager (SSM)** using CLI commands on your local system.
 
-Pre-requisites for this to work are:
+It enables secure access to EC2 and RDS instances in the UAT and PROD accounts **via SSM**, eliminating the need for `.pem` key files or direct SSH access.
 
-(1) You must have a github account on company's email account ({name}@audintel.in) and must have been admitted into the company's Github organization, Audintel-Dev.
+---
 
-(2) You must have access to AWS accounts of the company, which permission sets assigned to you in UAT and PROD accounts
+## 🔐 Access Method
+
+We use **SSM-based access**, which means:
+
+* No SSH keys (`.pem`) required
+* No direct inbound access (no open ports like 22)
+* Access is managed securely through AWS IAM and SSO
+* Sessions are initiated using the AWS CLI
+
+---
+
+## 💡 Benefits
+
+* Centralized authentication using AWS SSO
+* Improved security (no key management)
+* Auditable session logs via SSM
+* Easy access to both EC2 and RDS environments
+
+---
+
+## ✅ Pre-requisites
+
+Before proceeding, ensure the following requirements are met:
+
+1. **GitHub Access**
+
+   * You must have a GitHub account using your company email (`{name}@audintel.in`)
+   * Your account should be added to the organization: **Audintel-Dev**
+
+2. **AWS Access**
+
+   * You must have access to the company’s AWS accounts
+   * Appropriate **AWS SSO permission sets** should be assigned to you for:
+
+     * UAT account
+     * PROD account
+
+---
+
+### 💡 Note
+
+If you do not have any of the above access, please contact your administrator or DevOps team before proceeding.
+
+---
 
 ## 🚀 1. Clone the Repository
 
@@ -15,30 +58,66 @@ Open your terminal:
 * **Windows** → PowerShell
 * **Mac/Linux** → zsh / bash
 
-Run:
+---
+
+## 📥 Clone the Repository
+
+Run the following command:
 
 ```bash
 git clone https://github.com/Audintel-Dev/sso-ssm-configuration.git
 ```
-You will be prompted for user-name and password.  
 
-For Username, give your email-id with company's domain, i.e. {name}@audintel.in OR Give the exact Github name connected to this email-id.
+---
 
-For password, give the PAT token created for your above Github account.  Please note that Github DOES NOT accept Github console login password for this CLI prompted password.  
+## 🔑 Authentication Details
 
-**Note:** 
+You will be prompted for credentials:
 
-If you do not have the PAT token then you must create the PAT token as follows. 
+* **Username**
 
-(i) Go to your profile (NOT THE company's organization, Audintel-Dev) in Github Console. 
+  * Use your company email: `{name}@audintel.in`
+    **OR**
+  * Your GitHub username linked to this email
 
-(ii) Go to settings > Developer Settings > Fine grained tokens (or) Classic Tokens.  
+* **Password**
 
-(iii) Create the token with some suitable name without expiration date.  
+  * Use your **Personal Access Token (PAT)**
+  * ⚠️ GitHub does **NOT** accept your regular account password for CLI authentication
 
-(iv) Copy and save the PAT token. This is your personal password to your Github account.
+---
 
-**If still you are not able to clone after giving the correct username and the password, then it means your ID has not been given access permissions to this repo.  Please contact the DevOps Team.**
+## 🛠️ Create a Personal Access Token (PAT)
+
+If you don’t already have a PAT, follow these steps:
+
+1. Go to your **GitHub profile** (not the organization).
+2. Navigate to:
+   **Settings → Developer Settings → Personal Access Tokens**
+3. Choose one:
+
+   * **Fine-grained tokens** (recommended)
+   * **Classic tokens**
+4. Create a token:
+
+   * Give it a meaningful name
+   * Set appropriate permissions (repo access required)
+   * (Optional) Set expiration as per policy
+5. Copy and securely store the token
+
+   * ⚠️ This acts as your password for Git operations
+
+---
+
+## ⚠️ Troubleshooting
+
+* If authentication fails:
+
+  * Ensure you are using the **correct username and PAT**
+* If cloning still fails:
+
+  * You likely **don’t have access to the repository**
+  * Contact the **DevOps Team** to request access
 
 ---
 
@@ -59,7 +138,20 @@ cd sso-ssm-configuration
 install.ps1
 ```
 
-* Follow interactive prompts (keep pressing **Next**)
+
+## 🔐 PowerShell Execution Policy Setup
+
+To allow running local PowerShell scripts (like `install.ps1`), set the execution policy:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+- After that open new terminal.
+
+- Follow interactive prompts (keep pressing **Next**).
+
+---
 
 ### 👉 For Mac/Linux Users
 
@@ -390,30 +482,29 @@ This setup allows you to connect to multiple databases using **local port forwar
 
 ## 🔧 Database Port Mapping
 
-### 🏭 Production Databases
+## 🗄️ Production Databases
 
-```ini id="prod-db-map"
+```ini
 [prod_databases]
-audinteldb=3411
-auspigroup=3412
-chrobinsondb=3413
-ffsdb=3414
-idrivedb=3415
-redwood=3416
-shiphawk=3417
+audinteldb     = 3411
+auspigroup     = 3412
+chrobinsondb   = 3413
+ffsdb          = 3414
+idrivedb       = 3415
+redwood        = 3416
+shiphawk       = 3417
 ```
 
 ---
 
-### 🧪 UAT Databases
+## 🧪 UAT Databases
 
-```ini id="uat-db-map"
+```ini
 [uat_databases]
-uat-aud1-encrypted=3307
-uat-chr=3308
-uat-ffs=3309
+uat-aud1-encrypted = 3307
+uat-chr            = 3308
+uat-ffs            = 3309
 ```
-
 ---
 
 ## 🔄 Customizing Ports

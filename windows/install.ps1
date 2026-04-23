@@ -25,16 +25,7 @@ if ($env:PATH -notlike "*$bin*") {
 }
 
 # ----------------------------
-# PRE-FLIGHT CHECKS
-# ----------------------------
-Write-Host "Running pre-flight checks..."
-
-if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
-    Write-Host "AWS CLI not found"
-}
-
-# ----------------------------
-# INSTALL AWS CLI (SAFE)
+# INSTALL AWS CLI
 # ----------------------------
 if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
     Write-Host "Installing AWS CLI..."
@@ -42,12 +33,7 @@ if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
     $msi = "$env:TEMP\aws.msi"
     Invoke-WebRequest "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi
 
-    Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msi`" /qn"
-
-    if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
-        Write-Host "Silent install failed. Retrying with UI..."
-        Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msi`""
-    }
+    Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msi`""
 }
 
 # ----------------------------
