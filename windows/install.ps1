@@ -105,7 +105,7 @@ function aws-auto-login {
     if (`$profiles -notcontains "uat") {
         Write-Host "Skipping uat (profile not configured)"
     } else {
-        aws sts get-caller-identity --profile uat 2>`$null
+        aws sts get-caller-identity --profile uat 2>`$null | Out-Null
         if (-not `$?) {
             Write-Host "Logging into uat..."
             aws sso login --profile uat
@@ -115,7 +115,7 @@ function aws-auto-login {
     if (`$profiles -notcontains "prod") {
         Write-Host "Skipping prod (profile not configured)"
     } else {
-        aws sts get-caller-identity --profile prod 2>`$null
+        aws sts get-caller-identity --profile prod 2>`$null | Out-Null
         if (-not `$?) {
             Write-Host "Logging into prod..."
             aws sso login --profile prod
