@@ -120,6 +120,26 @@ function prod { win-connect prod }
 function dbuat { rds uat }
 function dbprod { rds prod }
 function dbpc { db-pc }
+# Auto start DB tunnels
+Write-Host "Starting default DB tunnels..."
+
+try {
+    dbuat
+} catch {
+    Write-Host "dbuat failed"
+}
+
+try {
+    dbprod
+} catch {
+    Write-Host "dbprod failed"
+}
+
+try {
+    dbpc
+} catch {
+    Write-Host "Checking DB Ports failed"
+}
 
 # <<< SSM_SETUP <<<
 
