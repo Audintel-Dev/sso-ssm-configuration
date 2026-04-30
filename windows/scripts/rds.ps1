@@ -1,133 +1,287 @@
 param(
-    [string]$ENV
+    [string]$ENV,
+    [string]$SEARCH_TERM,
+    [string]$MODE
 )
 
 # -----------------------------
+
 # VALIDATION
+
 # -----------------------------
+
 if (-not $ENV) {
-    Write-Host "Usage: rds <uat|prod>"
-    exit 1
+Write-Host "Usage: rds <uat|prod>"
+exit 1
 }
 
-# Use consistent profile variable
-$AWS_PROFILE_NAME = $ENV
-$MAP_FILE = "$env:USERPROFILE\.rds-map"
+$PROFILE = $ENV
+$MAP_FILE = Join-Path $env:USERPROFILE ".rds-map"
 
 if (-not (Test-Path $MAP_FILE)) {
-    Write-Host "[ERROR] Map file not found: $MAP_FILE"
-    exit 1
+Write-Host "[ERROR] Map file not found: $MAP_FILE"
+exit 1
 }
 
 # -----------------------------
+
 # REGION
+
 # -----------------------------
-$REGION = aws configure get region --profile $AWS_PROFILE_NAME 2>$null
-if (-not $REGION -or $REGION -eq "") {
-    $REGION = "us-east-1"
-}
+
+$REGION = aws configure get region --profile $PROFILE 2>$null
+if (-not $REGION) { $REGION = "us-east-1" }
 
 Write-Host "Using region: $REGION"
 
 # -----------------------------
-# LOGIN (SSO)
+
+# SSO LOGIN
+
 # -----------------------------
-if (Get-Command aws-login -ErrorAction SilentlyContinue) {
-    Write-Host "Checking SSO for $AWS_PROFILE_NAME..."
-    aws-login $AWS_PROFILE_NAME
+
+aws sts get-caller-identity --profile $PROFILE > $null 2>&1
+if ($LASTEXITCODE -ne 0) {
+aws sso login --profile $PROFILE
 }
 
 # -----------------------------
-# FIND JUMPHOST (SAFE)
-# -----------------------------
-$JUMP = aws ec2 describe-instances `
-  --profile $AWS_PROFILE_NAME `
-  --region $REGION `
-  --filters "Name=instance-state-name,Values=running" `
-  --query "Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Jumphost')].InstanceId" `
-  --output text
 
-# PowerShell-safe equivalent of `head -n 1`
-$JUMP = ($JUMP -split "`n" | Where-Object { $_ -ne "" } | Select-Object -First 1)
+# FIND JUMPHOST
+
+# -----------------------------
+
+$ec2Args = @(
+"ec2","describe-instances",
+"--profile",$PROFILE,
+"--region",$REGION,
+"--filters","Name=instance-state-name,Values=running",
+"--query","Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Jumphost')].InstanceId",
+"--output","text"
+)
+
+$JUMP = aws @ec2Args
+$JUMP = ($JUMP -split "`n" | Where-Object { $_ } | Select-Object -First 1)
 
 if (-not $JUMP) {
-    Write-Host "[ERROR] No Jumphost found"
-    exit 1
+Write-Host "[ERROR] No Jumphost found"
+exit 1
 }
 
 Write-Host "Using Jumphost: $JUMP"
-Write-Host "Starting DB tunnels ($AWS_PROFILE_NAME)..."
+Write-Host ""
 
 # -----------------------------
-# FETCH RDS ENDPOINTS
+# MODE HANDLING
 # -----------------------------
-$rdsData = aws rds describe-db-instances `
-    --profile $AWS_PROFILE_NAME `
+
+if (-not $MODE) {
+
+    Write-Host ""
+    Write-Host "Select Mode:"
+    Write-Host "1) Reuse existing tunnels"
+    Write-Host "2) Restart tunnels"
+    Write-Host "3) Exit"
+    Write-Host "4) Open new only"
+
+    $choice = Read-Host "Enter choice"
+
+    switch ($choice) {
+        "1" { $MODE = "reuse" }
+        "2" { $MODE = "restart" }
+        "3" { exit 0 }
+        "4" { $MODE = "open" }
+        default {
+            Write-Host "Invalid choice"
+            exit 1
+        }
+    }
+}
+else {
+    Write-Host "Mode: $MODE"
+}
+
+# -----------------------------
+
+# FUNCTIONS
+
+# -----------------------------
+
+function Is-PortActive($PORT) {
+return (Get-NetTCPConnection -LocalPort $PORT -ErrorAction SilentlyContinue) -ne $null
+}
+
+function Kill-Port($PORT) {
+Get-NetTCPConnection -LocalPort $PORT -ErrorAction SilentlyContinue |
+ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
+}
+
+function Kill-UserSessions {
+Write-Host "Cleaning old sessions..."
+
+$sessions = aws ssm describe-sessions `
+    --state Active `
+    --profile $PROFILE `
     --region $REGION `
-    --output json | ConvertFrom-Json
+    --query "Sessions[?Target=='$JUMP'].SessionId" `
+    --output text
+
+foreach ($id in ($sessions -split "`t")) {
+    if ($id) {
+        aws ssm terminate-session --session-id $id `
+            --profile $PROFILE `
+            --region $REGION | Out-Null
+    }
+}
+
+}
+
+function Start-Tunnel($DB, $PORT, $ENDPOINT) {
+
+if (-not $ENDPOINT) {
+    Write-Host "[WARN] No endpoint for $DB"
+    return
+}
+
+if (Is-PortActive $PORT) {
+    if ($MODE -eq "open") {
+        Write-Host "Restarting $DB"
+        Kill-Port $PORT
+    } else {
+        Write-Host "Reusing $DB"
+        return
+    }
+}
+
+Write-Host "Starting $DB on port $PORT"
+
+$args = @(
+    "ssm","start-session",
+    "--target",$JUMP,
+    "--profile",$PROFILE,
+    "--region",$REGION,
+    "--document-name","AWS-StartPortForwardingSessionToRemoteHost",
+    "--parameters","host=$ENDPOINT,portNumber=3306,localPortNumber=$PORT"
+)
+
+Start-Process aws -ArgumentList $args -WindowStyle Hidden
+
+}
+
+# -----------------------------
+
+# MODE EXECUTION
+
+# -----------------------------
+
+if ($MODE -eq "restart") {
+Kill-UserSessions
+}
+
+# -----------------------------
+
+# FETCH RDS
+
+# -----------------------------
+
+$rdsArgs = @(
+"rds","describe-db-instances",
+"--profile",$PROFILE,
+"--region",$REGION,
+"--output","json"
+)
+
+$rdsData = aws @rdsArgs | ConvertFrom-Json
 
 $rdsMap = @{}
 foreach ($db in $rdsData.DBInstances) {
-    $rdsMap[$db.DBInstanceIdentifier] = $db.Endpoint.Address
+$rdsMap[$db.DBInstanceIdentifier] = $db.Endpoint.Address
 }
 
 # -----------------------------
-# FUNCTION
-# -----------------------------
-function Start-Tunnel {
-    param (
-        [string]$DB,
-        [string]$PORT,
-        [string]$ENDPOINT
-    )
 
-    if (-not $ENDPOINT) {
-        Write-Host "[WARN] Endpoint not found for $DB"
-        return
-    }
-
-    Write-Host "[INFO] Starting: $DB -> 127.0.0.1:$PORT"
-
-    $arguments = @(
-        "ssm", "start-session",
-        "--target", $JUMP,
-        "--profile", $AWS_PROFILE_NAME,
-        "--region", $REGION,
-        "--document-name", "AWS-StartPortForwardingSessionToRemoteHost",
-        "--parameters", "host=$ENDPOINT,portNumber=3306,localPortNumber=$PORT"
-    )
-
-    Start-Process -FilePath "aws" `
-        -ArgumentList $arguments `
-        -WindowStyle Hidden
-}
+# READ MAP FILE
 
 # -----------------------------
-# PROCESS MAP FILE
-# -----------------------------
+
 $CURRENT_ENV = ""
+$MATCHED = @()
 
 Get-Content $MAP_FILE | ForEach-Object {
 
-    $line = $_.Trim()
+$line = $_.Trim()
+if (-not $line) { return }
 
-    if (-not $line) { return }
+if ($line -eq "[uat_databases]") { $CURRENT_ENV = "uat"; return }
+if ($line -eq "[prod_databases]") { $CURRENT_ENV = "prod"; return }
 
-    if ($line -eq "[uat_databases]") { $CURRENT_ENV = "uat"; return }
-    if ($line -eq "[prod_databases]") { $CURRENT_ENV = "prod"; return }
+if ($line.StartsWith("#")) { return }
+if ($CURRENT_ENV -ne $ENV) { return }
 
-    if ($line.StartsWith("#")) { return }
-    if ($CURRENT_ENV -ne $ENV) { return }
+$parts = $line.Split("=")
+if ($parts.Count -ne 2) { return }
 
-    $parts = $line.Split("=")
-    if ($parts.Count -ne 2) { return }
+$DB = $parts[0].Trim()
+$PORT = $parts[1].Trim()
 
-    $DB = $parts[0].Trim()
-    $PORT = $parts[1].Trim()
-
-    $ENDPOINT = $rdsMap[$DB]
-
-    Start-Tunnel -DB $DB -PORT $PORT -ENDPOINT $ENDPOINT
+if ($SEARCH_TERM -and ($DB -notmatch $SEARCH_TERM)) {
+    return
 }
 
-Write-Host "Tunnels started"
+$MATCHED += [PSCustomObject]@{
+    DB = $DB
+    PORT = $PORT
+}
+
+}
+
+if ($MATCHED.Count -eq 0) {
+Write-Host "No matching DBs found"
+exit 1
+}
+
+# -----------------------------
+
+# DISPLAY
+
+# -----------------------------
+
+$i = 1
+foreach ($item in $MATCHED) {
+Write-Host "$i) $($item.DB) - $($item.PORT)"
+$i++
+}
+
+# -----------------------------
+
+# MULTI SELECT
+
+# -----------------------------
+
+$input = Read-Host "Enter DB numbers (e.g. 1 2 3)"
+$indexes = $input -split " " | Select-Object -Unique
+
+if ($indexes.Count -gt 3) {
+Write-Host "Max 3 tunnels allowed"
+exit 1
+}
+
+foreach ($n in $indexes) {
+$idx = [int]$n - 1
+
+
+if ($idx -lt 0 -or $idx -ge $MATCHED.Count) {
+    Write-Host "Invalid selection"
+    exit 1
+}
+
+$db = $MATCHED[$idx].DB
+$port = $MATCHED[$idx].PORT
+$endpoint = $rdsMap[$db]
+
+Start-Tunnel $db $port $endpoint
+
+}
+
+Write-Host ""
+Write-Host "Tunnels completed"
