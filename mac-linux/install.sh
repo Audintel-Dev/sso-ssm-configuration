@@ -225,6 +225,45 @@ aws_auto_login() {
 aws_auto_login
 '
 
+append_block "SSM_SETUP" "$SHELL_FILE" '
+start_ssm_setup() {
+
+  [ -t 0 ] || return
+
+  echo ""
+  echo -n "Continue full setup? (y/n): "
+  read choice
+  [ "$choice" != "y" ] && echo "Skipping setup..." && return
+
+  # AUTH
+  echo "Auth Performing this would take few seconds"
+  aws_auto_login
+
+  # PROD
+  echo -n "Open PROD DB tunnels? (y/n): "
+  read prodChoice
+  if [ "$prodChoice" = "y" ]; then
+    dbprod
+  fi
+
+  # UAT
+  echo -n "Open UAT DB tunnels? (y/n): "
+  read uatChoice
+  if [ "$uatChoice" = "y" ]; then
+    dbuat
+  fi
+
+  # PORT CHECK
+  if [ "$prodChoice" = "y" ] || [ "$uatChoice" = "y" ]; then
+    dbpc
+  fi
+
+  echo "Setup complete"
+}
+
+start_ssm_setup
+'
+
 # ----------------------------
 # WSL CONFIG
 # ----------------------------

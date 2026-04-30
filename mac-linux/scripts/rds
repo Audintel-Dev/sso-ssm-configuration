@@ -51,30 +51,25 @@ MODE=${MODE:-1}
 if [ -t 0 ]; then
   echo ""
   echo "Select Mode:"
-  echo "1) Reuse existing tunnels"
-  echo "2) Restart tunnels (kill + recreate)"
+  echo "1) Restart tunnels (kill + recreate)"
+  echo "2) Open new tunnels only"
   echo "3) Exit"
-  echo "4) Open new tunnels only"
-  read -rp "Enter choice [1/2/3/4]: " MODE
+  read -rp "Enter choice [1/2/3]: " MODE
 fi
 
 case "$MODE" in
   1)
-    echo "🔁 Reusing existing tunnels"
-    SKIP_KILL=true
-    ;;
-  2)
     echo "♻️ Restarting tunnels"
     SKIP_KILL=false
+    ;;
+  2)
+    echo "🚀 Open new tunnels only"
+    SKIP_KILL=true
+    FORCE_OPEN=true
     ;;
   3)
     echo "🚪 Exiting..."
     exit 0
-    ;;
-  4)
-    echo "🚀 Open new tunnels only"
-    SKIP_KILL=true
-    FORCE_OPEN=true
     ;;
   *)
     echo "❌ Invalid choice"
@@ -93,31 +88,38 @@ kill_port() {
   lsof -tiTCP:"$1" 2>/dev/null | xargs kill -9 2>/dev/null || true
 }
 
-kill_existing_user_sessions() {
-  USER_EMAIL=$(aws sts get-caller-identity \
+kill_user_sessions() {
+  echo "Cleaning only YOUR port-forwarding sessions..."
+
+  USER=$(aws sts get-caller-identity \
     --profile "$PROFILE" \
     --query "Arn" \
     --output text | awk -F'/' '{print $NF}')
 
-  echo "🔍 Cleaning previous sessions for: $USER_EMAIL"
+  [ -z "$USER" ] && echo "Unable to detect user" && return
+
+  echo "User: $USER"
 
   aws ssm describe-sessions \
     --state Active \
     --region "$REGION" \
     --profile "$PROFILE" \
-    --query "Sessions[?Target=='$JUMP'].[SessionId,Owner]" \
-    --output text | while read SESSION_ID OWNER
+    --query "Sessions[?Target=='$JUMP'].[SessionId,Owner,DocumentName]" \
+    --output text | while read SESSION_ID OWNER DOC
   do
-    if [[ "$OWNER" == *"$USER_EMAIL"* ]]; then
-      echo "❌ Killing: $SESSION_ID"
+    if [[ "$OWNER" == *"$USER"* ]] && \
+       [[ "$DOC" == "AWS-StartPortForwardingSessionToRemoteHost" ]]; then
+
+      echo "Killing tunnel session: $SESSION_ID"
+
       aws ssm terminate-session \
         --session-id "$SESSION_ID" \
         --region "$REGION" \
-        --profile "$PROFILE"
+        --profile "$PROFILE" \
+        >/dev/null 2>&1
     fi
   done
 }
-
 start_tunnel() {
   local DB=$1
   local PORT=$2
@@ -150,7 +152,7 @@ start_tunnel() {
 # CLEANUP
 # -----------------------------
 if [ "$SKIP_KILL" = false ]; then
-  kill_existing_user_sessions
+  kill_user_sessions
 fi
 
 # -----------------------------
