@@ -64,24 +64,6 @@ IMAGE_ID="${instance_image_ids[$((choice-1))]:-}"
 
 INSTANCE_NAME=$(jq -r --arg id "$INSTANCE_ID" '.[] | select(.Id == $id) | .Name // "unknown"' <<< "$instances")
 
-# ── Get AMI Name (FAST AWS API) ───────────────────────────
-#AMI_NAME=$(aws ec2 describe-images \
-#  --image-ids "$IMAGE_ID" \
-#  --region "$REGION" \
-#  --query "Images[0].Name" \
-#  --output text \
-#  --profile "$PROFILE")
-
-# ── Detect user correctly ─────────────────────────────────
-#if echo "$AMI_NAME" | grep -qi "ubuntu"; then
-#  TARGET_USER="ubuntu"
-#else
-#  TARGET_USER="ec2-user"
-#fi
-
-# ── Detect actual OS via SSM ──────────────────────────────
-#echo "Detecting OS..."
-
 COMMAND_ID=$(aws ssm send-command \
   --instance-ids "$INSTANCE_ID" \
   --document-name "AWS-RunShellScript" \
