@@ -80,66 +80,72 @@ $block = @'
 
 # >>> SSM_SETUP >>>
 
-# function aws-auto-login {
+function aws-auto-login {
 
-#     if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
-#         return
-#     }
+if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+    return
+}
 
-#     $profiles = aws configure list-profiles 2>$null
+$profiles = aws configure list-profiles 2>$null
 
-#     if ($profiles -notcontains "uat") {
-#         Write-Host "Skipping uat (profile not configured)"
-#     } else {
-#         aws sts get-caller-identity --profile uat 2>$null | Out-Null
-#         if ($LASTEXITCODE -ne 0) {
-#             Write-Host "Logging into uat..."
-#             aws sso login --profile uat
-#         } else {
-#             Write-Host "uat already logged in"
-#         }
-#     }
+foreach ($env in @("uat","prod")) {
 
-#     if ($profiles -notcontains "prod") {
-#         Write-Host "Skipping prod (profile not configured)"
-#     } else {
-#         aws sts get-caller-identity --profile prod 2>$null | Out-Null
-#         if ($LASTEXITCODE -ne 0) {
-#             Write-Host "Logging into prod..."
-#             aws sso login --profile prod
-#         } else {
-#             Write-Host "prod already logged in"
-#         }
-#     }
-# }
+    if ($profiles -notcontains $env) {
+        Write-Host "Skipping $env (not configured)"
+        continue
+    }
 
-#aws-auto-login
+    aws sts get-caller-identity --profile $env 2>$null | Out-Null
+
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Logging into $env..."
+        aws sso login --profile $env
+    } else {
+        Write-Host "$env already logged in"
+    }
+}
+
+}
+
+function start-ssm-setup {
+
+$choice = Read-Host "Continue full setup? (y/n)"
+if ($choice -ne "y") {
+    Write-Host "Skipping setup..."
+    return
+}
+
+# AUTH
+aws-auto-login
+
+# PROD
+$prodChoice = Read-Host "Open PROD DB tunnels? (y/n)"
+if ($prodChoice -eq "y") {
+    try { dbprod } catch { Write-Host "dbprod failed" }
+}
+
+# UAT
+$uatChoice = Read-Host "Open UAT DB tunnels? (y/n)"
+if ($uatChoice -eq "y") {
+    try { dbuat } catch { Write-Host "dbuat failed" }
+}
+
+# PORT CHECK
+if ($prodChoice -eq "y" -or $uatChoice -eq "y") {
+    try { dbpc } catch { Write-Host "Port check failed" }
+}
+
+Write-Host "Setup complete"
+
+}
 
 function uat { win-connect uat }
 function prod { win-connect prod }
 function dbuat { rds uat }
 function dbprod { rds prod }
 function dbpc { db-pc }
-# Auto start DB tunnels
-Write-Host "Starting default DB tunnels..."
 
-try {
-    dbuat
-} catch {
-    Write-Host "dbuat failed"
-}
-
-try {
-    dbprod
-} catch {
-    Write-Host "dbprod failed"
-}
-
-try {
-    dbpc
-} catch {
-    Write-Host "Checking DB Ports failed"
-}
+start-ssm-setup
 
 # <<< SSM_SETUP <<<
 

@@ -1,7 +1,7 @@
 param(
-    [string]$ENV,
-    [string]$SEARCH_TERM,
-    [string]$MODE
+[string]$ENV,
+[string]$SEARCH_TERM,
+[string]$MODE
 )
 
 # -----------------------------
@@ -72,33 +72,33 @@ Write-Host "Using Jumphost: $JUMP"
 Write-Host ""
 
 # -----------------------------
+
 # MODE HANDLING
+
 # -----------------------------
 
 if (-not $MODE) {
 
-    Write-Host ""
-    Write-Host "Select Mode:"
-    Write-Host "1) Reuse existing tunnels"
-    Write-Host "2) Restart tunnels"
-    Write-Host "3) Exit"
-    Write-Host "4) Open new only"
+Write-Host ""
+Write-Host "Select Mode:"
+Write-Host "1) Reuse existing tunnels"
+Write-Host "2) Restart tunnels (kill only YOUR sessions)"
+Write-Host "3) Exit"
+Write-Host "4) Open new only"
 
-    $choice = Read-Host "Enter choice"
+$choice = Read-Host "Enter choice"
 
-    switch ($choice) {
-        "1" { $MODE = "reuse" }
-        "2" { $MODE = "restart" }
-        "3" { exit 0 }
-        "4" { $MODE = "open" }
-        default {
-            Write-Host "Invalid choice"
-            exit 1
-        }
-    }
+switch ($choice) {
+    "1" { $MODE = "reuse" }
+    "2" { $MODE = "restart" }
+    "3" { exit 0 }
+    "4" { $MODE = "open" }
+    default { Write-Host "Invalid choice"; exit 1 }
+}
+
 }
 else {
-    Write-Host "Mode: $MODE"
+Write-Host "Mode: $MODE"
 }
 
 # -----------------------------
@@ -116,19 +116,50 @@ Get-NetTCPConnection -LocalPort $PORT -ErrorAction SilentlyContinue |
 ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 }
 
-function Kill-UserSessions {
-Write-Host "Cleaning old sessions..."
+# 🔥 SAFE: Kill only USER sessions
 
+function Kill-UserSessions {
+
+Write-Host "Cleaning only YOUR port-forwarding sessions..."
+
+# Get your SSO user (email)
+$arn = aws sts get-caller-identity `
+    --profile $PROFILE `
+    --query "Arn" `
+    --output text
+
+if (-not $arn) {
+    Write-Host "Unable to detect user"
+    return
+}
+
+$USER = $arn.Split("/")[-1]
+Write-Host "User: $USER"
+
+# Get sessions (SessionId, Owner, DocumentName)
 $sessions = aws ssm describe-sessions `
     --state Active `
     --profile $PROFILE `
     --region $REGION `
-    --query "Sessions[?Target=='$JUMP'].SessionId" `
+    --query "Sessions[?Target=='$JUMP'].[SessionId,Owner,DocumentName]" `
     --output text
 
-foreach ($id in ($sessions -split "`t")) {
-    if ($id) {
-        aws ssm terminate-session --session-id $id `
+foreach ($line in ($sessions -split "`n")) {
+
+    if (-not $line.Trim()) { continue }
+
+    $parts = $line -split "\s+"
+    $sessionId = $parts[0]
+    $owner     = $parts[1]
+    $doc       = $parts[2]
+
+    if ($owner -like "*$USER*" -and `
+        $doc -eq "AWS-StartPortForwardingSessionToRemoteHost") {
+
+        Write-Host "Killing tunnel session: $sessionId"
+
+        aws ssm terminate-session `
+            --session-id $sessionId `
             --profile $PROFILE `
             --region $REGION | Out-Null
     }
@@ -268,7 +299,6 @@ exit 1
 
 foreach ($n in $indexes) {
 $idx = [int]$n - 1
-
 
 if ($idx -lt 0 -or $idx -ge $MATCHED.Count) {
     Write-Host "Invalid selection"
