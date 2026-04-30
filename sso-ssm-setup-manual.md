@@ -30,12 +30,12 @@ We use **SSM-based access**, which means:
 
 Before proceeding, ensure the following requirements are met:
 
-1. **GitHub Access**
+<!-- 1. **GitHub Access**
 
    * You must have a GitHub account using your company email (`{name}@audintel.in`)
-   * Your account should be added to the organization: **Audintel-Dev**
+   * Your account should be added to the organization: **Audintel-Dev** -->
 
-2. **AWS Access**
+1. **AWS Access**
 
    * You must have access to the company’s AWS accounts
    * Appropriate **AWS SSO permission sets** should be assigned to you for:
@@ -51,9 +51,7 @@ If you do not have any of the above access, please contact your administrator or
 
 ---
 
-## 🚀 1. Clone the Repository
-
-Open your terminal:
+## 🚀 1. Open your terminal
 
 * **Windows** → PowerShell
 * **Mac/Linux** → zsh / bash
@@ -68,7 +66,7 @@ Run the following command:
 git clone https://github.com/Audintel-Dev/sso-ssm-configuration.git
 ```
 
----
+<!-- ---
 
 ## 🔑 Authentication Details
 
@@ -83,9 +81,9 @@ You will be prompted for credentials:
 * **Password**
 
   * Use your **Personal Access Token (PAT)**
-  * ⚠️ GitHub does **NOT** accept your regular account password for CLI authentication
+  * ⚠️ GitHub does **NOT** accept your regular account password for CLI authentication -->
 
----
+<!-- ---
 
 ## 🛠️ Create a Personal Access Token (PAT)
 
@@ -118,7 +116,7 @@ If you don’t already have a PAT, follow these steps:
 
   * You likely **don’t have access to the repository**
   * Contact the **DevOps Team** to request access
-
+ -->
 ---
 
 ## 📂 2. Navigate to Project Folder
@@ -231,6 +229,10 @@ Audintel@UAT, raghu@audintel.in (670307493739)
 
 ## 🔑 7. Select Permission Set
 
+If user is assigned **only one permission set**, it will be selected automatically.
+
+If you have **multiple permission sets**, you will be prompted to choose one.
+
 You may see options like:
 
 ```
@@ -238,10 +240,9 @@ uat-developers-access
 ReadOnlyAccess
 ViewOnlyAccess
 uat-DBA-permissions
-
 ```
 
-👉 Choose the permission set based on your access needs:
+👉 Choose the permission set based on the level of access you need:
 
 ---
 
@@ -567,3 +568,64 @@ To connect to **`ffsdb` (prod)**:
 * Port: `3414`
 
 ---
+
+Here’s a cleaner, more professional version of your instructions without changing the intent:
+
+---
+
+## 🔄 Updating Scripts
+
+1. Navigate to the `sso-ssm-configuration` folder:
+
+   ```bash
+   cd sso-ssm-configuration
+   ```
+
+2. Pull the latest changes:
+
+   ```bash
+   git pull
+   ```
+
+---
+
+### 🪟 For Windows Users
+
+3. Go to the `windows/` directory:
+
+   ```powershell
+   cd windows
+   ```
+
+4. Run the installation script:
+
+   ```powershell
+   .\install.ps1
+   ```
+
+5. Close the current shell and open a new one.
+
+✅ The latest changes will now be applied to your system.
+
+---
+
+### 🍎🐧 For Mac/Linux Users
+
+3. Go to the `mac-linux/` directory:
+
+   ```bash
+   cd mac-linux
+   ```
+
+4. Run the installation script:
+
+   ```bash
+   bash install.sh
+   ```
+
+5. Close the current terminal and open a new one.
+
+✅ The latest changes will now be applied to your system.
+
+
+
