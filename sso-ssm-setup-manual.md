@@ -35,7 +35,7 @@ Before proceeding, ensure the following requirements are met:
    * You must have a GitHub account using your company email (`{name}@audintel.in`)
    * Your account should be added to the organization: **Audintel-Dev** -->
 
-1. **AWS Access**
+**AWS Access**
 
    * You must have access to the company’s AWS accounts
    * Appropriate **AWS SSO permission sets** should be assigned to you for:
@@ -357,28 +357,7 @@ prod-DBA-permissions
 * **Profile name**: `prod`
 
 ---
-
-## 🧪 16. Verify Configuration
-
-```bash
-aws sts get-caller-identity --profile prod
-```
-
----
-
-* Select **Production account**:
-
-  ```
-  Raghavendra Sinha, raghu@audintel.com (471201224424)
-  ```
-* Use:
-
-  * **SSO session name**: `prod`
-  * **Profile name**: `prod`
-
----
-
-## 🧪 17. Verify the Configuration
+## 🧪 16. Verify the Configuration
 
 ### 🔹 Check Production Profile
 
@@ -566,10 +545,6 @@ To connect to **`ffsdb` (prod)**:
 
 * Host: `127.0.0.1`
 * Port: `3414`
-
----
-
-Here’s a cleaner, more professional version of your instructions without changing the intent:
 
 ---
 
