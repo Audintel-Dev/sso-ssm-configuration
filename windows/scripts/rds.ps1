@@ -81,18 +81,16 @@ if (-not $MODE) {
 
 Write-Host ""
 Write-Host "Select Mode:"
-Write-Host "1) Reuse existing tunnels"
-Write-Host "2) Restart tunnels (kill only YOUR sessions)"
+Write-Host "1) Restart tunnels (kill only YOUR sessions + create new tunnels)"
+Write-Host "2) Open new tunnels"
 Write-Host "3) Exit"
-Write-Host "4) Open new only"
 
 $choice = Read-Host "Enter choice"
 
 switch ($choice) {
-    "1" { $MODE = "reuse" }
-    "2" { $MODE = "restart" }
+    "1" { $MODE = "restart" }
+    "2" { $MODE = "open" }
     "3" { exit 0 }
-    "4" { $MODE = "open" }
     default { Write-Host "Invalid choice"; exit 1 }
 }
 
