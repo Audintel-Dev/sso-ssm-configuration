@@ -214,16 +214,10 @@ alias dbuat="rds uat"
 alias dbprod="rds prod"
 '
 
-# ----------------------------
-# AWS AUTO LOGIN
-# ----------------------------
-append_block "AWS_AUTO_LOGIN" "$SHELL_FILE" '
-aws_auto_login() {
-  aws sts get-caller-identity --profile uat >/dev/null 2>&1 || aws-login uat
-  aws sts get-caller-identity --profile prod >/dev/null 2>&1 || aws-login prod
-}
-aws_auto_login
-'
+# ---------------------------------
+# AUTOMATING dbuat dbprod aws-login
+# ---------------------------------
+
 
 append_block "SSM_SETUP" "$SHELL_FILE" '
 start_ssm_setup() {
@@ -231,12 +225,14 @@ start_ssm_setup() {
   [ -t 0 ] || return
 
   echo ""
-  echo -n "Continue full setup? (y/n): "
+  echo -n "Continue full setup[aws-auth,dbprod,dbuat,dbpc]? (y/n): "
   read choice
   [ "$choice" != "y" ] && echo "Skipping setup..." && return
 
-  # AUTH
-  echo "Auth Performing this would take few seconds"
+  aws_auto_login() {
+  aws sts get-caller-identity --profile uat >/dev/null 2>&1 || aws-login uat
+  aws sts get-caller-identity --profile prod >/dev/null 2>&1 || aws-login prod
+  }
   aws_auto_login
 
   # PROD
