@@ -251,6 +251,8 @@ start_ssm_setup() {
 
   # PORT CHECK
   if [ "$prodChoice" = "y" ] || [ "$uatChoice" = "y" ]; then
+    echo "⏳ Waiting for tunnels to be ready..."
+    sleep 4
     dbpc
   fi
 
