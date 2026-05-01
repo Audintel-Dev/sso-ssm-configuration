@@ -109,7 +109,7 @@ foreach ($env in @("uat","prod")) {
 
 function start-ssm-setup {
 
-$choice = Read-Host "Continue full setup? (y/n)"
+$choice = Read-Host "Continue full setup[aws auth and dbprod and dbuat tunnels opening]? (y/n)"
 if ($choice -ne "y") {
     Write-Host "Skipping setup..."
     return

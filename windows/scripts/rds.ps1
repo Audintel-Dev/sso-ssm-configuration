@@ -287,7 +287,7 @@ $i++
 
 # -----------------------------
 
-$input = Read-Host "Enter DB numbers (e.g. 1 2 3)"
+$input = Read-Host "Enter DB numbers Maximum[3] at a time (e.g. 1 2 3)"
 $indexes = $input -split " " | Select-Object -Unique
 
 if ($indexes.Count -gt 3) {
