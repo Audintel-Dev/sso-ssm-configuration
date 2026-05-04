@@ -1,315 +1,260 @@
 param(
-[string]$ENV,
-[string]$SEARCH_TERM,
-[string]$MODE
+    [string]$PROFILE,
+    [string]$SEARCH_TERM
 )
 
-# -----------------------------
-
-# VALIDATION
-
-# -----------------------------
-
-if (-not $ENV) {
-Write-Host "Usage: rds <uat|prod>"
-exit 1
-}
-
-$PROFILE = $ENV
-$MAP_FILE = Join-Path $env:USERPROFILE ".rds-map"
-
-if (-not (Test-Path $MAP_FILE)) {
-Write-Host "[ERROR] Map file not found: $MAP_FILE"
-exit 1
-}
-
-# -----------------------------
-
-# REGION
-
-# -----------------------------
-
-$REGION = aws configure get region --profile $PROFILE 2>$null
-if (-not $REGION) { $REGION = "us-east-1" }
-
-Write-Host "Using region: $REGION"
-
-# -----------------------------
-
-# SSO LOGIN
-
-# -----------------------------
-
-aws sts get-caller-identity --profile $PROFILE > $null 2>&1
-if ($LASTEXITCODE -ne 0) {
-aws sso login --profile $PROFILE
-}
-
-# -----------------------------
-
-# FIND JUMPHOST
-
-# -----------------------------
-
-$ec2Args = @(
-"ec2","describe-instances",
-"--profile",$PROFILE,
-"--region",$REGION,
-"--filters","Name=instance-state-name,Values=running",
-"--query","Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Jumphost')].InstanceId",
-"--output","text"
-)
-
-$JUMP = aws @ec2Args
-$JUMP = ($JUMP -split "`n" | Where-Object { $_ } | Select-Object -First 1)
-
-if (-not $JUMP) {
-Write-Host "[ERROR] No Jumphost found"
-exit 1
-}
-
-Write-Host "Using Jumphost: $JUMP"
-Write-Host ""
-
-# -----------------------------
-
-# MODE HANDLING
-
-# -----------------------------
-
-if (-not $MODE) {
-
-Write-Host ""
-Write-Host "Select Mode:"
-Write-Host "1) Restart tunnels (kill only YOUR sessions + create new tunnels)"
-Write-Host "2) Open new tunnels"
-Write-Host "3) Exit"
-
-$choice = Read-Host "Enter choice"
-
-switch ($choice) {
-    "1" { $MODE = "restart" }
-    "2" { $MODE = "open" }
-    "3" { exit 0 }
-    default { Write-Host "Invalid choice"; exit 1 }
-}
-
-}
-else {
-Write-Host "Mode: $MODE"
-}
-
-# -----------------------------
-
-# FUNCTIONS
-
-# -----------------------------
-
-function Is-PortActive($PORT) {
-return (Get-NetTCPConnection -LocalPort $PORT -ErrorAction SilentlyContinue) -ne $null
-}
-
-function Kill-Port($PORT) {
-Get-NetTCPConnection -LocalPort $PORT -ErrorAction SilentlyContinue |
-ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-}
-
-# 🔥 SAFE: Kill only USER sessions
-
-function Kill-UserSessions {
-
-Write-Host "Cleaning only YOUR port-forwarding sessions..."
-
-# Get your SSO user (email)
-$arn = aws sts get-caller-identity `
-    --profile $PROFILE `
-    --query "Arn" `
-    --output text
-
-if (-not $arn) {
-    Write-Host "Unable to detect user"
-    return
-}
-
-$USER = $arn.Split("/")[-1]
-Write-Host "User: $USER"
-
-# Get sessions (SessionId, Owner, DocumentName)
-$sessions = aws ssm describe-sessions `
-    --state Active `
-    --profile $PROFILE `
-    --region $REGION `
-    --query "Sessions[?Target=='$JUMP'].[SessionId,Owner,DocumentName]" `
-    --output text
-
-foreach ($line in ($sessions -split "`n")) {
-
-    if (-not $line.Trim()) { continue }
-
-    $parts = $line -split "\s+"
-    $sessionId = $parts[0]
-    $owner     = $parts[1]
-    $doc       = $parts[2]
-
-    if ($owner -like "*$USER*" -and `
-        $doc -eq "AWS-StartPortForwardingSessionToRemoteHost") {
-
-        Write-Host "Killing tunnel session: $sessionId"
-
-        aws ssm terminate-session `
-            --session-id $sessionId `
-            --profile $PROFILE `
-            --region $REGION | Out-Null
-    }
-}
-
-}
-
-function Start-Tunnel($DB, $PORT, $ENDPOINT) {
-
-if (-not $ENDPOINT) {
-    Write-Host "[WARN] No endpoint for $DB"
-    return
-}
-
-if (Is-PortActive $PORT) {
-    if ($MODE -eq "open") {
-        Write-Host "Restarting $DB"
-        Kill-Port $PORT
-    } else {
-        Write-Host "Reusing $DB"
-        return
-    }
-}
-
-Write-Host "Starting $DB on port $PORT"
-
-$args = @(
-    "ssm","start-session",
-    "--target",$JUMP,
-    "--profile",$PROFILE,
-    "--region",$REGION,
-    "--document-name","AWS-StartPortForwardingSessionToRemoteHost",
-    "--parameters","host=$ENDPOINT,portNumber=3306,localPortNumber=$PORT"
-)
-
-Start-Process aws -ArgumentList $args -WindowStyle Hidden
-
-}
-
-# -----------------------------
-
-# MODE EXECUTION
-
-# -----------------------------
-
-if ($MODE -eq "restart") {
-Kill-UserSessions
-}
-
-# -----------------------------
-
-# FETCH RDS
-
-# -----------------------------
-
-$rdsArgs = @(
-"rds","describe-db-instances",
-"--profile",$PROFILE,
-"--region",$REGION,
-"--output","json"
-)
-
-$rdsData = aws @rdsArgs | ConvertFrom-Json
-
-$rdsMap = @{}
-foreach ($db in $rdsData.DBInstances) {
-$rdsMap[$db.DBInstanceIdentifier] = $db.Endpoint.Address
-}
-
-# -----------------------------
-
-# READ MAP FILE
-
-# -----------------------------
-
-$CURRENT_ENV = ""
-$MATCHED = @()
-
-Get-Content $MAP_FILE | ForEach-Object {
-
-$line = $_.Trim()
-if (-not $line) { return }
-
-if ($line -eq "[uat_databases]") { $CURRENT_ENV = "uat"; return }
-if ($line -eq "[prod_databases]") { $CURRENT_ENV = "prod"; return }
-
-if ($line.StartsWith("#")) { return }
-if ($CURRENT_ENV -ne $ENV) { return }
-
-$parts = $line.Split("=")
-if ($parts.Count -ne 2) { return }
-
-$DB = $parts[0].Trim()
-$PORT = $parts[1].Trim()
-
-if ($SEARCH_TERM -and ($DB -notmatch $SEARCH_TERM)) {
-    return
-}
-
-$MATCHED += [PSCustomObject]@{
-    DB = $DB
-    PORT = $PORT
-}
-
-}
-
-if ($MATCHED.Count -eq 0) {
-Write-Host "No matching DBs found"
-exit 1
-}
-
-# -----------------------------
-
-# DISPLAY
-
-# -----------------------------
-
-$i = 1
-foreach ($item in $MATCHED) {
-Write-Host "$i) $($item.DB) - $($item.PORT)"
-$i++
-}
-
-# -----------------------------
-
-# MULTI SELECT
-
-# -----------------------------
-
-$input = Read-Host "Enter DB numbers Maximum[3] at a time (e.g. 1 2 3)"
-$indexes = $input -split " " | Select-Object -Unique
-
-if ($indexes.Count -gt 3) {
-Write-Host "Max 3 tunnels allowed"
-exit 1
-}
-
-foreach ($n in $indexes) {
-$idx = [int]$n - 1
-
-if ($idx -lt 0 -or $idx -ge $MATCHED.Count) {
-    Write-Host "Invalid selection"
+$MAP_FILE = "$HOME\.rds-map"
+
+if (-not $PROFILE) {
+    Write-Host "Usage:"
+    Write-Host "  dbuat"
+    Write-Host "  dbprod"
     exit 1
 }
 
-$db = $MATCHED[$idx].DB
-$port = $MATCHED[$idx].PORT
-$endpoint = $rdsMap[$db]
+if (-not (Test-Path $MAP_FILE)) {
+    Write-Host "Mapping file not found (~/.rds-map)"
+    exit 1
+}
 
-Start-Tunnel $db $port $endpoint
+$REGION = aws configure get region --profile $PROFILE
+if (-not $REGION) { $REGION = "us-east-1" }
 
+# SSO check
+aws sts get-caller-identity --profile $PROFILE *> $null
+if ($LASTEXITCODE -ne 0) {
+    aws sso login --profile $PROFILE
+}
+
+# ---------------------------------
+# FIND JUMPHOST
+# ---------------------------------
+Write-Host "Fetching connection..."
+
+$JUMPS = aws ec2 describe-instances `
+    --profile $PROFILE `
+    --region $REGION `
+    --filters "Name=instance-state-name,Values=running" `
+    --query "Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Jumphost')].InstanceId" `
+    --output text
+
+$JUMPS = $JUMPS -split "\s+"
+
+if ($JUMPS.Count -eq 0) {
+    Write-Host "No gateway hosts available"
+    exit 1
+}
+
+$JUMP = Get-Random -InputObject $JUMPS
+
+Write-Host "Connected via secure gateway ($JUMP)"
+
+# -----------------------------
+# FUNCTIONS
+# -----------------------------
+function Kill-Port {
+    param($PORT)
+
+    $pids = Get-NetTCPConnection -LocalPort $PORT -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
+
+   foreach ($procId in $pids) {
+     Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Kill-User-Sessions {
+
+    $USER = (aws sts get-caller-identity `
+        --profile $PROFILE `
+        --query "Arn" `
+        --output text).Split("/")[-1]
+
+    Write-Host ""
+    Write-Host "Your active database connections:"
+    Write-Host ""
+
+    $sessions = aws ssm describe-sessions `
+        --state Active `
+        --region $REGION `
+        --profile $PROFILE `
+        --query "Sessions[*].[SessionId,Owner,DocumentName,Target,StartDate]" `
+        --output text
+
+    foreach ($line in $sessions) {
+        $parts = $line -split "\s+"
+
+        if ($parts.Count -ge 5) {
+            $sessionId = $parts[0]
+            $owner = $parts[1]
+            $doc = $parts[2]
+            $target = $parts[3]
+            $start = $parts[4]
+
+            if ($owner -like "*$USER*" -and $doc -eq "AWS-StartPortForwardingSessionToRemoteHost") {
+                "{0,-40} {1,-20} {2}" -f $sessionId, $target, $start
+            }
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Cleaning your database connections..."
+
+    $sessions = aws ssm describe-sessions `
+        --state Active `
+        --region $REGION `
+        --profile $PROFILE `
+        --query "Sessions[*].[SessionId,Owner,DocumentName]" `
+        --output text
+
+    foreach ($line in $sessions) {
+        $parts = $line -split "\s+"
+
+        if ($parts.Count -ge 3) {
+            $sessionId = $parts[0]
+            $owner = $parts[1]
+            $doc = $parts[2]
+
+            if ($owner -like "*$USER*" -and $doc -eq "AWS-StartPortForwardingSessionToRemoteHost") {
+                Write-Host "Closing: $sessionId"
+
+                aws ssm terminate-session `
+                    --session-id $sessionId `
+                    --region $REGION `
+                    --profile $PROFILE *> $null
+            }
+        }
+    }
+
+    Write-Host ""
+    Write-Host "Your database connections cleared"
+}
+
+function Start-Connection {
+    param($DB, $PORT, $ENDPOINT)
+
+    Write-Host "Connecting: $DB (127.0.0.1:$PORT)"
+
+    Kill-Port $PORT
+
+    $params = "host=$ENDPOINT,portNumber=3306,localPortNumber=$PORT"
+
+    Start-Process -FilePath "aws" -ArgumentList @(
+        "ssm","start-session",
+        "--target",$JUMP,
+        "--profile",$PROFILE,
+        "--region",$REGION,
+        "--document-name","AWS-StartPortForwardingSessionToRemoteHost",
+        "--parameters",$params
+    ) -WindowStyle Hidden
+}
+
+# -----------------------------
+# READ DB MAP
+# -----------------------------
+$CURRENT_ENV = ""
+$MATCHED_DBS = @()
+$MATCHED_PORTS = @()
+
+Get-Content $MAP_FILE | ForEach-Object {
+
+    $line = $_.Trim()
+
+    if (-not $line) { return }
+
+    if ($line -eq "[uat_databases]") { $CURRENT_ENV = "uat"; return }
+    if ($line -eq "[prod_databases]") { $CURRENT_ENV = "prod"; return }
+
+    if ($line.StartsWith("#")) { return }
+    if ($CURRENT_ENV -ne $PROFILE) { return }
+
+    $parts = $line -split "="
+    $DB = $parts[0].Trim()
+    $PORT = $parts[1].Trim()
+
+    if ($SEARCH_TERM -and ($DB -notmatch $SEARCH_TERM)) { return }
+
+    $MATCHED_DBS += $DB
+    $MATCHED_PORTS += $PORT
+}
+
+if ($MATCHED_DBS.Count -eq 0) {
+    Write-Host "No databases found"
+    exit 1
+}
+
+# -----------------------------
+# SHOW DB LIST
+# -----------------------------
+Write-Host ""
+Write-Host "Available Databases:"
+Write-Host ""
+
+for ($i=0; $i -lt $MATCHED_DBS.Count; $i++) {
+    "{0,-3} {1,-20} (Port: {2})" -f ($i+1), $MATCHED_DBS[$i], $MATCHED_PORTS[$i]
 }
 
 Write-Host ""
-Write-Host "Tunnels completed"
+Write-Host "Enter database number to connect (e.g. 1 or 1,2,3)"
+Write-Host "Press Enter - connect ALL"
+Write-Host "Type 'c' - clean old connections"
+Write-Host "Type 'q' - exit"
+Write-Host ""
+
+$choice = Read-Host "Selection"
+
+if (-not $choice) {
+    $SELECTED_INDEXES = 0..($MATCHED_DBS.Count-1)
+
+} elseif ($choice -eq "c") {
+    Kill-User-Sessions
+    exit
+
+} elseif ($choice -eq "q") {
+    exit
+
+} else {
+    $choice = ($choice -replace ",", " ").Trim()
+    $SELECTED_INDEXES = @()
+
+    foreach ($num in $choice -split "\s+") {
+        $index = [int]$num - 1
+
+        if ($index -lt 0 -or $index -ge $MATCHED_DBS.Count) {
+            Write-Host "Invalid selection: $num"
+            exit 1
+        }
+
+        $SELECTED_INDEXES += $index
+    }
+
+    $SELECTED_INDEXES = $SELECTED_INDEXES | Sort-Object -Unique
+
+    if ($SELECTED_INDEXES.Count -gt 3) {
+        Write-Host "Max 3 connections allowed"
+        exit 1
+    }
+}
+
+# -----------------------------
+# START CONNECTIONS
+# -----------------------------
+foreach ($idx in $SELECTED_INDEXES) {
+
+    $DB = $MATCHED_DBS[$idx]
+    $PORT = $MATCHED_PORTS[$idx]
+
+    $ENDPOINT = aws rds describe-db-instances `
+        --profile $PROFILE `
+        --region $REGION `
+        --db-instance-identifier $DB `
+        --query "DBInstances[0].Endpoint.Address" `
+        --output text
+
+    Start-Connection $DB $PORT $ENDPOINT
+}
+
+Write-Host ""
+Write-Host "--------------------------------------------"
+Write-Host "Connection ready"
+Write-Host "Use: 127.0.0.1:<port>"
+Write-Host "--------------------------------------------"
