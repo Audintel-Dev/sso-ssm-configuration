@@ -34,7 +34,7 @@ JUMPS=($(aws ec2 describe-instances \
   --profile "$PROFILE" \
   --region "$REGION" \
   --filters "Name=instance-state-name,Values=running" \
-  --query "Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Test')].InstanceId" \
+  --query "Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Jumphost')].InstanceId" \
   --output text))
 
 [ ${#JUMPS[@]} -eq 0 ] && {
