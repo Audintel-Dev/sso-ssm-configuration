@@ -195,7 +195,7 @@ for ($i=0; $i -lt $MATCHED_DBS.Count; $i++) {
 
 Write-Host ""
 Write-Host "Enter database number to connect (e.g. 1 or 1,2,3)"
-Write-Host "Press Enter - connect ALL"
+Write-Host "Press Enter[DB Engineers Only] - connect ALL"
 Write-Host "Type 'c' - clean old connections"
 Write-Host "Type 'q' - exit"
 Write-Host ""
