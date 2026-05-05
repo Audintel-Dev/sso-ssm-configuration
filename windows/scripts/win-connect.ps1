@@ -46,9 +46,12 @@ $instances = aws ec2 describe-instances `
     Name: Tags[?Key=='Name'] | [0].Value,
     Id: InstanceId,
     ImageId: ImageId,
-    Platform: Platform
+    Platform: Platform,
+    LaunchTime: LaunchTime
   }" `
   --output json | ConvertFrom-Json
+
+$instances = @($instances)
 
 # ----------------------------
 # FILTER (FIXED CORE)
@@ -66,15 +69,20 @@ if (-not $instances) {
 # ----------------------------
 # DISPLAY
 # ----------------------------
-"{0,-4} {1,-40} {2,-22}" -f "No","Instance Name","Instance ID"
+"{0,-4} {1,-40} {2,-22} {3,-25}" -f "No","Instance Name","Instance ID","Creation Time"
 
-for ($i=0; $i -lt $instances.Count; $i++) {
-    $name = $instances[$i].Name
+$i = 1
+foreach ($inst in $instances) {
+
+    $name = $inst.Name
     if (-not $name) { $name = "No-Name" }
 
-    "{0,-4} {1,-40} {2,-22}" -f ($i+1), $name, $instances[$i].Id
-}
+    $launchTime = $inst.LaunchTime
 
+    "{0,-4} {1,-40} {2,-22} {3,-25}" -f $i, $name, $inst.Id, $launchTime
+
+    $i++
+}
 # ----------------------------
 # SELECT INSTANCE
 # ----------------------------
