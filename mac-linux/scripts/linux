@@ -83,8 +83,6 @@ OS_INFO=$(aws ssm get-command-invocation \
   --query "StandardOutputContent" \
   --output text)
 
-#echo "Detected OS info:"
-#echo "$OS_INFO"
 
 # Determine correct login user
 if echo "$OS_INFO" | grep -qi "ubuntu"; then
@@ -107,7 +105,6 @@ else
 fi
 
 # ── Build PS1 ─────────────────────────────────────────────
-# RC_CONTENT="export PS1=\"\\[\\e]0;${TAB_EMOJI} [${PROFILE}] ${INSTANCE_NAME}\\a\\]\\[\\e[${ENV_COLOR}m\\]${EMOJI} [${PROFILE}][${INSTANCE_NAME}] [\\u@\\h \\W]\\\\\\$\\[\\e[0m\\] \""
 
 RC_CONTENT="# SSM_PROMPT_INJECTED
 unset PROMPT_COMMAND

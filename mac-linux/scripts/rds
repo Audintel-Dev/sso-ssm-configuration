@@ -9,8 +9,7 @@ MAP_FILE="$HOME/.rds-map"
 [ -z "$PROFILE" ] && {
   echo "Usage:"
   echo "  dbuat"
-  echo "  dbuat aud"
-  echo "  dbprod trace"
+  echo "  dbprod"
   exit 1
 }
 
@@ -22,115 +21,101 @@ MAP_FILE="$HOME/.rds-map"
 REGION=$(aws configure get region --profile "$PROFILE")
 REGION=${REGION:-us-east-1}
 
+# Keep original fast behavior
 aws sts get-caller-identity --profile "$PROFILE" >/dev/null 2>&1 || \
 aws sso login --profile "$PROFILE"
 
-# -----------------------------
-# Find Jumphost
-# -----------------------------
-JUMP=$(aws ec2 describe-instances \
+# ---------------------------------
+# FIND JUMPHOST (FAST RANDOM)
+# ---------------------------------
+echo "Fetching connection..."
+
+JUMPS=($(aws ec2 describe-instances \
   --profile "$PROFILE" \
   --region "$REGION" \
   --filters "Name=instance-state-name,Values=running" \
-  --query "Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Jumphost')].InstanceId" \
-  --output text | head -n 1)
+  --query "Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Test')].InstanceId" \
+  --output text))
 
-[ -z "$JUMP" ] && {
-  echo "❌ No Jumphost found"
+[ ${#JUMPS[@]} -eq 0 ] && {
+  echo "❌ No gateway hosts available"
   exit 1
 }
 
-echo "Using Jumphost: $JUMP"
-echo ""
+JUMP="${JUMPS[$RANDOM % ${#JUMPS[@]}]}"
 
-# -----------------------------
-# MODE SELECTION (AUTO SAFE)
-# -----------------------------
-MODE=${MODE:-1}
-
-if [ -t 0 ]; then
-  echo ""
-  echo "Select Mode:"
-  echo "1) Restart tunnels (kill + recreate)"
-  echo "2) Open new tunnels only"
-  echo "3) Exit"
-  read -rp "Enter choice [1/2/3]: " MODE
-fi
-
-case "$MODE" in
-  1)
-    echo "♻️ Restarting tunnels"
-    SKIP_KILL=false
-    ;;
-  2)
-    echo "🚀 Open new tunnels only"
-    SKIP_KILL=true
-    FORCE_OPEN=true
-    ;;
-  3)
-    echo "🚪 Exiting..."
-    exit 0
-    ;;
-  *)
-    echo "❌ Invalid choice"
-    exit 1
-    ;;
-esac
+echo "Connected via secure gateway ($JUMP)"
 
 # -----------------------------
 # FUNCTIONS
 # -----------------------------
-is_port_active() {
-  nc -z 127.0.0.1 "$1" >/dev/null 2>&1
-}
-
 kill_port() {
   lsof -tiTCP:"$1" 2>/dev/null | xargs kill -9 2>/dev/null || true
 }
 
-kill_user_sessions() {
-  echo "Cleaning only YOUR port-forwarding sessions..."
 
+
+kill_user_sessions() {
   USER=$(aws sts get-caller-identity \
     --profile "$PROFILE" \
     --query "Arn" \
     --output text | awk -F'/' '{print $NF}')
 
-  [ -z "$USER" ] && echo "Unable to detect user" && return
+  echo ""
+  echo "Your active database connections:"
+  echo ""
 
-  echo "User: $USER"
+  MATCH_FOUND=false
 
   aws ssm describe-sessions \
     --state Active \
     --region "$REGION" \
     --profile "$PROFILE" \
-    --query "Sessions[?Target=='$JUMP'].[SessionId,Owner,DocumentName]" \
+    --query "Sessions[*].[SessionId,Owner,DocumentName,Target,StartDate]" \
+    --output text | while read SESSION_ID OWNER DOC TARGET START
+  do
+    if [[ "$OWNER" == *"$USER"* ]] && \
+       [[ "$DOC" == "AWS-StartPortForwardingSessionToRemoteHost" ]]; then
+
+      printf "%-40s %-20s %-15s\n" "$SESSION_ID" "$TARGET" "$START"
+      MATCH_FOUND=true
+    fi
+  done
+
+  echo ""
+
+  echo "Cleaning your database connections..."
+
+  aws ssm describe-sessions \
+    --state Active \
+    --region "$REGION" \
+    --profile "$PROFILE" \
+    --query "Sessions[*].[SessionId,Owner,DocumentName]" \
     --output text | while read SESSION_ID OWNER DOC
   do
     if [[ "$OWNER" == *"$USER"* ]] && \
        [[ "$DOC" == "AWS-StartPortForwardingSessionToRemoteHost" ]]; then
 
-      echo "Killing tunnel session: $SESSION_ID"
+      echo "Closing: $SESSION_ID"
 
       aws ssm terminate-session \
         --session-id "$SESSION_ID" \
         --region "$REGION" \
-        --profile "$PROFILE" \
-        >/dev/null 2>&1
+        --profile "$PROFILE" >/dev/null 2>&1
     fi
   done
+
+  echo ""
+  echo "✅ Your database connections cleared"
 }
-start_tunnel() {
+
+
+start_connection() {
   local DB=$1
   local PORT=$2
   local ENDPOINT=$3
 
-  if is_port_active "$PORT"; then
-    echo "✅ $DB already running on port $PORT"
-    return
-  fi
-
-  echo "🚀 Starting: $DB → localhost:$PORT"
+  echo "Connecting: $DB (127.0.0.1:$PORT)"
 
   kill_port "$PORT"
 
@@ -143,17 +128,7 @@ start_tunnel() {
     > /tmp/ssm-$PORT.log 2>&1 < /dev/null &
 
   disown
-
-  echo "⏳ Tunnel started: $DB ($PORT)"
 }
-
-
-# -----------------------------
-# CLEANUP
-# -----------------------------
-if [ "$SKIP_KILL" = false ]; then
-  kill_user_sessions
-fi
 
 # -----------------------------
 # READ DB MAP
@@ -186,52 +161,72 @@ while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
 done < "$MAP_FILE"
 
 [ ${#MATCHED_DBS[@]} -eq 0 ] && {
-  echo "❌ No matching databases found"
+  echo "❌ No databases found"
   exit 1
 }
 
 # -----------------------------
 # SHOW DB LIST
 # -----------------------------
-printf "%-5s %-35s %-10s\n" "No" "Database Name" "Port"
-printf "%-5s %-35s %-10s\n" "-----" "-----------------------------------" "----------"
+echo ""
+echo "Available Databases:"
+echo ""
 
 for i in "${!MATCHED_DBS[@]}"; do
-  printf "%-5s %-35s %-10s\n" "$((i+1))" "${MATCHED_DBS[$i]}" "${MATCHED_PORTS[$i]}"
+  printf "%-3s %-20s (Port: %s)\n" "$((i+1))" "${MATCHED_DBS[$i]}" "${MATCHED_PORTS[$i]}"
 done
 
 echo ""
+echo "Enter database number to connect (e.g. 1 or 1,2,3)"
+echo "Press Enter → connect ALL"
+echo "Type 'c' → clean old connections"
+echo "Type 'q' → exit"
+echo ""
 
 # -----------------------------
-# MULTI SELECT
+# USER INPUT (SINGLE INPUT UX)
 # -----------------------------
-read -rp "Enter DB numbers (e.g. 1 2 3): " choice
+read -rp "Selection: " choice
 
-SELECTED_INDEXES=()
+if [[ -z "$choice" ]]; then
+  # ALL
+  SELECTED_INDEXES=($(seq 0 $((${#MATCHED_DBS[@]} - 1))))
 
-for num in $choice; do
-  index=$((num-1))
+elif [[ "$choice" == "c" ]]; then
+  kill_user_sessions
+  exit 0
 
-  if [[ $index -lt 0 || $index -ge ${#MATCHED_DBS[@]} ]]; then
-    echo "❌ Invalid selection: $num"
+elif [[ "$choice" == "q" ]]; then
+  exit 0
+
+else
+  choice=$(echo "$choice" | tr ',' ' ' | xargs)
+
+  SELECTED_INDEXES=()
+
+  for num in $choice; do
+    index=$((num-1))
+
+    if [[ $index -lt 0 || $index -ge ${#MATCHED_DBS[@]} ]]; then
+      echo "❌ Invalid selection: $num"
+      exit 1
+    fi
+
+    SELECTED_INDEXES+=("$index")
+  done
+
+  SELECTED_INDEXES=($(printf "%s\n" "${SELECTED_INDEXES[@]}" | sort -u))
+
+  # limit only for manual selection
+  MAX=3
+  if [ "${#SELECTED_INDEXES[@]}" -gt "$MAX" ]; then
+    echo "⚠️ Max $MAX connections allowed"
     exit 1
   fi
-
-  SELECTED_INDEXES+=("$index")
-done
-
-# Remove duplicates
-SELECTED_INDEXES=($(printf "%s\n" "${SELECTED_INDEXES[@]}" | sort -u))
-
-# Limit tunnels
-MAX_TUNNELS=3
-if [ "${#SELECTED_INDEXES[@]}" -gt "$MAX_TUNNELS" ]; then
-  echo "⚠️ Max $MAX_TUNNELS tunnels allowed"
-  exit 1
 fi
 
 # -----------------------------
-# START TUNNELS
+# START CONNECTIONS
 # -----------------------------
 for idx in "${SELECTED_INDEXES[@]}"; do
   DB="${MATCHED_DBS[$idx]}"
@@ -244,11 +239,11 @@ for idx in "${SELECTED_INDEXES[@]}"; do
     --query "DBInstances[0].Endpoint.Address" \
     --output text)
 
-  start_tunnel "$DB" "$PORT" "$ENDPOINT"
+  start_connection "$DB" "$PORT" "$ENDPOINT"
 done
 
 echo ""
 echo "--------------------------------------------"
-echo "✅ Tunnel setup completed"
-echo "Host: 127.0.0.1"
+echo "✅ Connection ready"
+echo "Use: 127.0.0.1:<port>"
 echo "--------------------------------------------"

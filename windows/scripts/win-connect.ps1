@@ -93,16 +93,6 @@ $INSTANCE_ID = $inst.Id
 $INSTANCE_NAME = $inst.Name
 $IMAGE_ID = $inst.ImageId
 
-# # ----------------------------
-# # FAST OS DETECTION (AMI)
-# # ----------------------------
-# $AMI_NAME = aws ec2 describe-images `
-#     --image-ids $IMAGE_ID `
-#     --region $region `
-#     --query "Images[0].Name" `
-#     --output text `
-#     --profile $PROFILE
-
 # ----------------------------
 # DETECT OS USING SSM
 # ----------------------------
