@@ -25,16 +25,17 @@ instances=$(aws ec2 describe-instances \
     "Name=instance-state-name,Values=running" \
     "Name=platform-details,Values=Linux/UNIX" \
   --query "Reservations[].Instances[].{
-    Name:Tags[?Key=='Name']|[0].Value,
-    Id:InstanceId,
-    ImageId:ImageId
+  Name:Tags[?Key=='Name']|[0].Value,
+  Id:InstanceId,
+  ImageId:ImageId,
+  LaunchTime:LaunchTime
   }" \
   --output json)
 
 [[ "$instances" == "[]" ]] && { echo "No running Linux instances found"; exit 1; }
 
 # ── Display instances ─────────────────────────────────────
-printf "%-4s %-40s %-22s\n" "No" "Instance Name" "Instance ID"
+printf "%-4s %-40s %-22s %-25s\n" "No" "Instance Name" "Instance ID" "Creation Time"
 
 i=1
 instance_ids=()
@@ -44,8 +45,10 @@ while IFS= read -r row; do
   name=$(jq -r '.Name // "No-Name"' <<< "$row")
   id=$(jq -r '.Id' <<< "$row")
   image=$(jq -r '.ImageId' <<< "$row")
+  launch_time=$(jq -r '.LaunchTime' <<< "$row")
+  
 
-  printf "%-4s %-40s %-22s\n" "$i" "$name" "$id"
+  printf "%-4s %-40s %-22s %-25s\n" "$i" "$name" "$id" "$launch_time"
 
   instance_ids+=("$id")
   instance_image_ids+=("$image")
@@ -57,10 +60,14 @@ done <<< "$(echo "$instances" | jq -c '.[]')"
 echo ""
 read -rp "Select instance number: " choice
 
-INSTANCE_ID="${instance_ids[$((choice-1))]:-}"
-IMAGE_ID="${instance_image_ids[$((choice-1))]:-}"
+# Validate input
+if [[ -z "$choice" || ! "$choice" =~ ^[0-9]+$ || "$choice" -lt 1 || "$choice" -gt "${#instance_ids[@]}" ]]; then
+  echo "Invalid selection"
+  exit 1
+fi
 
-[[ -z "$INSTANCE_ID" ]] && { echo "Invalid selection"; exit 1; }
+INSTANCE_ID="${instance_ids[$((choice-1))]}"
+IMAGE_ID="${instance_image_ids[$((choice-1))]}"
 
 INSTANCE_NAME=$(jq -r --arg id "$INSTANCE_ID" '.[] | select(.Id == $id) | .Name // "unknown"' <<< "$instances")
 
