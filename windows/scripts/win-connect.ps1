@@ -33,7 +33,7 @@ $ssmInstances = aws ssm describe-instance-information `
 $ssmSet = $ssmInstances -split "\s+"
 
 # ----------------------------
-# FETCH INSTANCES (FIXED)
+# FETCH INSTANCES
 # ----------------------------
 Write-Host "Fetching instances..."
 
@@ -54,11 +54,11 @@ $instances = aws ec2 describe-instances `
 $instances = @($instances)
 
 # ----------------------------
-# FILTER (FIXED CORE)
+# FILTER ONLY LINUX + SSM
 # ----------------------------
-# Only filter Linux 
 $instances = $instances | Where-Object {
-    $_.Platform -ne "windows"
+    $_.Platform -ne "windows" -and
+    $ssmSet -contains $_.Id
 }
 
 if (-not $instances) {
@@ -72,6 +72,7 @@ if (-not $instances) {
 "{0,-4} {1,-40} {2,-22} {3,-25}" -f "No","Instance Name","Instance ID","Creation Time"
 
 $i = 1
+
 foreach ($inst in $instances) {
 
     $name = $inst.Name
@@ -83,13 +84,16 @@ foreach ($inst in $instances) {
 
     $i++
 }
+
 # ----------------------------
 # SELECT INSTANCE
 # ----------------------------
 Write-Host ""
+
 $choice = Read-Host "Select instance number"
 
 $num = 0
+
 if (-not [int]::TryParse($choice, [ref]$num) -or $num -lt 1 -or $num -gt $instances.Count) {
     Write-Host "Invalid selection"
     exit 1
@@ -97,14 +101,13 @@ if (-not [int]::TryParse($choice, [ref]$num) -or $num -lt 1 -or $num -gt $instan
 
 $inst = $instances[$num - 1]
 
-$INSTANCE_ID = $inst.Id
+$INSTANCE_ID   = $inst.Id
 $INSTANCE_NAME = $inst.Name
-$IMAGE_ID = $inst.ImageId
+$IMAGE_ID      = $inst.ImageId
 
 # ----------------------------
 # DETECT OS USING SSM
 # ----------------------------
-
 Write-Host "Detecting OS..."
 
 $commandId = aws ssm send-command `
@@ -126,12 +129,9 @@ $osInfo = aws ssm get-command-invocation `
     --query "StandardOutputContent" `
     --output text
 
-# Write-Host "OS Info:`n$osInfo"
-
 # ----------------------------
 # DETERMINE TARGET USER
 # ----------------------------
-
 $osInfoLower = $osInfo.ToLower()
 
 if ($osInfoLower -match "ubuntu") {
@@ -140,34 +140,33 @@ if ($osInfoLower -match "ubuntu") {
 elseif ($osInfoLower -match "amzn" -or $osInfoLower -match "amazon") {
     $TARGET_USER = "ec2-user"
 }
+else {
+    $TARGET_USER = "ec2-user"
+}
 
 Write-Host "Using user: $TARGET_USER"
 
 # ----------------------------
-# PROMPT COLOR
+# CLEAN PROMPT (NO COLOR)
 # ----------------------------
-if ($PROFILE -eq "prod") {
-    $COLOR = "0;31"
-} else {
-    $COLOR = "0;32"
-}
-
 $RC_CONTENT = @"
 # SSM_PROMPT_INJECTED
 unset PROMPT_COMMAND
 unset color_prompt
 unset force_color_prompt
-export PS1="\[\033[$COLOR`m\][$PROFILE][$INSTANCE_NAME][\u@\h \W]\$\[\033[0m\] "
+export PS1="[$PROFILE][$INSTANCE_NAME][\u@\h \W]\$ "
 "@
 
-$B64 = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($RC_CONTENT))
+$B64 = [Convert]::ToBase64String(
+    [System.Text.Encoding]::UTF8.GetBytes($RC_CONTENT)
+)
 
 # ----------------------------
 # PROMPT INJECTION
 # ----------------------------
-Write-Host "Configuring prompt (background)..."
+Write-Host "Configuring prompt..."
 
-$cmd = "echo $B64 | base64 -d > /etc/profile.d/ssm_prompt.sh"
+$cmd = "sudo rm -f /etc/profile.d/ssm_prompt.sh; echo $B64 | base64 -d > /etc/profile.d/ssm_prompt.sh"
 
 aws ssm send-command `
     --instance-ids $INSTANCE_ID `
