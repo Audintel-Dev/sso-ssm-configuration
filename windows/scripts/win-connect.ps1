@@ -11,26 +11,19 @@ if (-not $PROFILE) {
 # REGION
 # ----------------------------
 $region = aws configure get region --profile $PROFILE 2>$null
-if (-not $region) { $region = "us-east-1" }
+
+if (-not $region) {
+    $region = "us-east-1"
+}
 
 # ----------------------------
 # SSO LOGIN
 # ----------------------------
 aws sts get-caller-identity --profile $PROFILE 2>$null | Out-Null
+
 if ($LASTEXITCODE -ne 0) {
     aws sso login --profile $PROFILE
 }
-
-# ----------------------------
-# GET SSM CONNECTED INSTANCES
-# ----------------------------
-$ssmInstances = aws ssm describe-instance-information `
-    --profile $PROFILE `
-    --region $region `
-    --query "InstanceInformationList[].InstanceId" `
-    --output text
-
-$ssmSet = $ssmInstances -split "\s+"
 
 # ----------------------------
 # FETCH INSTANCES
@@ -54,33 +47,37 @@ $instances = aws ec2 describe-instances `
 $instances = @($instances)
 
 # ----------------------------
-# FILTER ONLY LINUX + SSM
+# FILTER ONLY LINUX
 # ----------------------------
 $instances = $instances | Where-Object {
-    $_.Platform -ne "windows" -and
-    $ssmSet -contains $_.Id
+    $_.Platform -ne "windows"
 }
 
 if (-not $instances) {
-    Write-Host "No SSM-connected Linux instances found"
+    Write-Host "No running Linux instances found"
     exit 1
 }
 
 # ----------------------------
 # DISPLAY
 # ----------------------------
-"{0,-4} {1,-40} {2,-22} {3,-25}" -f "No","Instance Name","Instance ID","Creation Time"
+"{0,-4} {1,-40} {2,-22} {3,-25}" -f `
+"No","Instance Name","Instance ID","Creation Time"
 
 $i = 1
 
 foreach ($inst in $instances) {
 
     $name = $inst.Name
-    if (-not $name) { $name = "No-Name" }
+
+    if (-not $name) {
+        $name = "No-Name"
+    }
 
     $launchTime = $inst.LaunchTime
 
-    "{0,-4} {1,-40} {2,-22} {3,-25}" -f $i, $name, $inst.Id, $launchTime
+    "{0,-4} {1,-40} {2,-22} {3,-25}" -f `
+    $i, $name, $inst.Id, $launchTime
 
     $i++
 }
@@ -94,7 +91,11 @@ $choice = Read-Host "Select instance number"
 
 $num = 0
 
-if (-not [int]::TryParse($choice, [ref]$num) -or $num -lt 1 -or $num -gt $instances.Count) {
+if (
+    -not [int]::TryParse($choice, [ref]$num) `
+    -or $num -lt 1 `
+    -or $num -gt $instances.Count
+) {
     Write-Host "Invalid selection"
     exit 1
 }
@@ -118,6 +119,12 @@ $commandId = aws ssm send-command `
     --region $region `
     --query "Command.CommandId" `
     --output text
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host ""
+    Write-Host "Instance is not SSM connected or not in valid state"
+    exit 1
+}
 
 Start-Sleep -Seconds 3
 
@@ -154,8 +161,12 @@ $RC_CONTENT = @"
 unset PROMPT_COMMAND
 unset color_prompt
 unset force_color_prompt
+
 export PS1="[$PROFILE][$INSTANCE_NAME][\u@\h \W]\$ "
 "@
+
+# Convert Windows CRLF → Linux LF
+$RC_CONTENT = $RC_CONTENT -replace "`r`n", "`n"
 
 $B64 = [Convert]::ToBase64String(
     [System.Text.Encoding]::UTF8.GetBytes($RC_CONTENT)
