@@ -17,18 +17,42 @@ if (-not (Test-Path $MAP_FILE)) {
     exit 1
 }
 
-$REGION = aws configure get region --profile $PROFILE
-if (-not $REGION) { $REGION = "us-east-1" }
+# ---------------------------------
+# NORMALIZE PROFILE
+# ---------------------------------
 
-# SSO check
+if ($PROFILE -eq "dbuat") {
+    $PROFILE = "uat"
+}
+
+if ($PROFILE -eq "dbprod") {
+    $PROFILE = "prod"
+}
+
+# ---------------------------------
+# REGION
+# ---------------------------------
+
+$REGION = aws configure get region --profile $PROFILE
+
+if (-not $REGION) {
+    $REGION = "us-east-1"
+}
+
+# ---------------------------------
+# SSO CHECK
+# ---------------------------------
+
 aws sts get-caller-identity --profile $PROFILE *> $null
+
 if ($LASTEXITCODE -ne 0) {
     aws sso login --profile $PROFILE
 }
 
 # ---------------------------------
-# FIND JUMPHOST
+# FIND BEST JUMPHOST
 # ---------------------------------
+
 Write-Host "Fetching connection..."
 
 $JUMPS = aws ec2 describe-instances `
@@ -45,112 +69,289 @@ if ($JUMPS.Count -eq 0) {
     exit 1
 }
 
-$JUMP = Get-Random -InputObject $JUMPS
+# ---------------------------------
+# FETCH ACTIVE TARGETS ONCE
+# ---------------------------------
+
+$ALL_TARGETS = aws ssm describe-sessions `
+    --state Active `
+    --region $REGION `
+    --profile $PROFILE `
+    --query "Sessions[].Target" `
+    --output text
+
+$SESSION_COUNTS = @{}
+
+foreach ($target in ($ALL_TARGETS -split "\s+")) {
+
+    if (-not $target) {
+        continue
+    }
+
+    if (-not $SESSION_COUNTS.ContainsKey($target)) {
+        $SESSION_COUNTS[$target] = 0
+    }
+
+    $SESSION_COUNTS[$target]++
+}
+
+$BEST_JUMP = ""
+$MIN_CONN = 999999
+
+foreach ($candidate in $JUMPS) {
+
+    $COUNT = 0
+
+    if ($SESSION_COUNTS.ContainsKey($candidate)) {
+        $COUNT = $SESSION_COUNTS[$candidate]
+    }
+
+    Write-Host "Jumphost: $candidate -> Active Sessions: $COUNT"
+
+    if ($COUNT -lt $MIN_CONN) {
+        $MIN_CONN = $COUNT
+        $BEST_JUMP = $candidate
+    }
+}
+
+$JUMP = $BEST_JUMP
 
 Write-Host "Connected via secure gateway ($JUMP)"
 
-# -----------------------------
+# ---------------------------------
 # FUNCTIONS
-# -----------------------------
+# ---------------------------------
+
 function Kill-Port {
+
     param($PORT)
 
-    $pids = Get-NetTCPConnection -LocalPort $PORT -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess
+    $connections = Get-NetTCPConnection `
+        -LocalPort $PORT `
+        -ErrorAction SilentlyContinue
 
-   foreach ($procId in $pids) {
-     Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+    foreach ($conn in $connections) {
+
+        try {
+            Stop-Process `
+                -Id $conn.OwningProcess `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+        catch {}
     }
 }
 
-function Kill-User-Sessions {
-
-    $USER = (aws sts get-caller-identity `
-        --profile $PROFILE `
-        --query "Arn" `
-        --output text).Split("/")[-1]
+function Clean-MySessions {
 
     Write-Host ""
-    Write-Host "Your active database connections:"
+    Write-Host "Cleaning $PROFILE database sessions..."
     Write-Host ""
+
+    $USER = (
+        aws sts get-caller-identity `
+            --profile $PROFILE `
+            --query "Arn" `
+            --output text
+    ).Split("/")[-1]
+
+    # ---------------------------------
+    # TERMINATE ONLY MY SESSIONS
+    # ---------------------------------
 
     $sessions = aws ssm describe-sessions `
         --state Active `
         --region $REGION `
         --profile $PROFILE `
-        --query "Sessions[*].[SessionId,Owner,DocumentName,Target,StartDate]" `
+        --query "Sessions[?DocumentName=='AWS-StartPortForwardingSessionToRemoteHost'].[SessionId,Owner]" `
         --output text
 
     foreach ($line in $sessions) {
+
         $parts = $line -split "\s+"
 
-        if ($parts.Count -ge 5) {
-            $sessionId = $parts[0]
-            $owner = $parts[1]
-            $doc = $parts[2]
-            $target = $parts[3]
-            $start = $parts[4]
+        if ($parts.Count -lt 2) {
+            continue
+        }
 
-            if ($owner -like "*$USER*" -and $doc -eq "AWS-StartPortForwardingSessionToRemoteHost") {
-                "{0,-40} {1,-20} {2}" -f $sessionId, $target, $start
-            }
+        $SESSION_ID = $parts[0]
+        $OWNER = $parts[1]
+
+        if ($OWNER -like "*$USER*") {
+
+            Write-Host "Closing session: $SESSION_ID"
+
+            aws ssm terminate-session `
+                --session-id $SESSION_ID `
+                --region $REGION `
+                --profile $PROFILE *> $null
         }
     }
 
-    Write-Host ""
-    Write-Host "Cleaning your database connections..."
+    # ---------------------------------
+    # CLEAN LOCAL TUNNELS
+    # ---------------------------------
 
-    $sessions = aws ssm describe-sessions `
-        --state Active `
-        --region $REGION `
-        --profile $PROFILE `
-        --query "Sessions[*].[SessionId,Owner,DocumentName]" `
-        --output text
+    $CURRENT_ENV = ""
 
-    foreach ($line in $sessions) {
-        $parts = $line -split "\s+"
+    Get-Content $MAP_FILE | ForEach-Object {
 
-        if ($parts.Count -ge 3) {
-            $sessionId = $parts[0]
-            $owner = $parts[1]
-            $doc = $parts[2]
+        $line = $_.Trim()
 
-            if ($owner -like "*$USER*" -and $doc -eq "AWS-StartPortForwardingSessionToRemoteHost") {
-                Write-Host "Closing: $sessionId"
+        if (-not $line) { return }
 
-                aws ssm terminate-session `
-                    --session-id $sessionId `
-                    --region $REGION `
-                    --profile $PROFILE *> $null
-            }
+        if ($line -eq "[uat_databases]") {
+            $CURRENT_ENV = "uat"
+            return
         }
+
+        if ($line -eq "[prod_databases]") {
+            $CURRENT_ENV = "prod"
+            return
+        }
+
+        if ($line.StartsWith("#")) { return }
+        if ($CURRENT_ENV -ne $PROFILE) { return }
+
+        $parts = $line -split "="
+
+        if ($parts.Count -lt 2) { return }
+
+        $DB = $parts[0].Trim()
+        $PORT = $parts[1].Trim()
+
+        $PID_FILE = "$env:TEMP\ssm-$PORT.pid"
+
+        if (Test-Path $PID_FILE) {
+
+            Write-Host "Closing tunnel: $DB (Port: $PORT)"
+
+            $OLD_PID = Get-Content `
+                $PID_FILE `
+                -ErrorAction SilentlyContinue
+
+            if ($OLD_PID) {
+
+                try {
+                    Stop-Process `
+                        -Id $OLD_PID `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+                }
+                catch {}
+            }
+
+            Remove-Item `
+                $PID_FILE `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+
+        Kill-Port $PORT
     }
 
     Write-Host ""
-    Write-Host "Your database connections cleared"
+    Write-Host "$PROFILE database sessions cleared"
 }
 
 function Start-Connection {
+
     param($DB, $PORT, $ENDPOINT)
 
     Write-Host "Connecting: $DB (127.0.0.1:$PORT)"
 
+    $PID_FILE = "$env:TEMP\ssm-$PORT.pid"
+
+    # ---------------------------------
+    # EXISTING TUNNEL VALIDATION
+    # ---------------------------------
+
+    if (Test-Path $PID_FILE) {
+
+        $OLD_PID = Get-Content `
+            $PID_FILE `
+            -ErrorAction SilentlyContinue
+
+        if ($OLD_PID) {
+
+            $process = Get-Process `
+                -Id $OLD_PID `
+                -ErrorAction SilentlyContinue
+
+            if ($process) {
+
+                $portOpen = Get-NetTCPConnection `
+                    -LocalPort $PORT `
+                    -ErrorAction SilentlyContinue
+
+                if ($portOpen) {
+
+                    Write-Host "Tunnel already active for $DB on port $PORT"
+                    return
+                }
+
+                Write-Host "Stale tunnel detected for $DB on port $PORT"
+
+                try {
+                    Stop-Process `
+                        -Id $OLD_PID `
+                        -Force `
+                        -ErrorAction SilentlyContinue
+                }
+                catch {}
+
+                Remove-Item `
+                    $PID_FILE `
+                    -Force `
+                    -ErrorAction SilentlyContinue
+            }
+            else {
+
+                Remove-Item `
+                    $PID_FILE `
+                    -Force `
+                    -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    # ---------------------------------
+    # CLEAN STALE LOCAL LISTENER
+    # ---------------------------------
+
     Kill-Port $PORT
 
-    $params = "host=$ENDPOINT,portNumber=3306,localPortNumber=$PORT"
+    $LOG_FILE = "$env:TEMP\ssm-$PORT.log"
+    $ERR_FILE = "$env:TEMP\ssm-$PORT.err.log"
 
-    Start-Process -FilePath "aws" -ArgumentList @(
-        "ssm","start-session",
-        "--target",$JUMP,
-        "--profile",$PROFILE,
-        "--region",$REGION,
-        "--document-name","AWS-StartPortForwardingSessionToRemoteHost",
-        "--parameters",$params
-    ) -WindowStyle Hidden
+    # ---------------------------------
+    # START DETACHED SSM SESSION
+    # ---------------------------------
+
+    $PROC = Start-Process `
+        -FilePath "aws" `
+        -ArgumentList @(
+            "ssm","start-session",
+            "--target",$JUMP,
+            "--profile",$PROFILE,
+            "--region",$REGION,
+            "--document-name","AWS-StartPortForwardingSessionToRemoteHost",
+            "--parameters","host=$ENDPOINT,portNumber=3306,localPortNumber=$PORT"
+        ) `
+        -WindowStyle Hidden `
+        -RedirectStandardOutput $LOG_FILE `
+        -RedirectStandardError $ERR_FILE `
+        -PassThru
+
+    $PROC.Id | Set-Content $PID_FILE
+
+    Write-Host "Connection tunnel started for $DB"
 }
 
 # -----------------------------
 # READ DB MAP
 # -----------------------------
+
 $CURRENT_ENV = ""
 $MATCHED_DBS = @()
 $MATCHED_PORTS = @()
@@ -168,6 +369,9 @@ Get-Content $MAP_FILE | ForEach-Object {
     if ($CURRENT_ENV -ne $PROFILE) { return }
 
     $parts = $line -split "="
+
+    if ($parts.Count -lt 2) { return }
+
     $DB = $parts[0].Trim()
     $PORT = $parts[1].Trim()
 
@@ -185,41 +389,60 @@ if ($MATCHED_DBS.Count -eq 0) {
 # -----------------------------
 # SHOW DB LIST
 # -----------------------------
+
 Write-Host ""
 Write-Host "Available Databases:"
 Write-Host ""
 
 for ($i=0; $i -lt $MATCHED_DBS.Count; $i++) {
-    "{0,-3} {1,-20} (Port: {2})" -f ($i+1), $MATCHED_DBS[$i], $MATCHED_PORTS[$i]
+
+    "{0,-3} {1,-20} (Port: {2})" -f `
+        ($i+1), `
+        $MATCHED_DBS[$i], `
+        $MATCHED_PORTS[$i]
 }
 
 Write-Host ""
 Write-Host "Enter database number to connect (e.g. 1 or 1,2,3)"
-Write-Host "Press Enter[DB Engineers Only] - connect ALL"
-Write-Host "Type 'c' - clean old connections"
-Write-Host "Type 'q' - exit"
+Write-Host "Press Enter[Don't Use Unless Require] - connect ALL"
+Write-Host "Type c - clean old connections"
+Write-Host "Type q - exit"
 Write-Host ""
 
 $choice = Read-Host "Selection"
 
+# ---------------------------------
+# PROCESS INPUT
+# ---------------------------------
+
 if (-not $choice) {
+
     $SELECTED_INDEXES = 0..($MATCHED_DBS.Count-1)
 
-} elseif ($choice -eq "c") {
-    Kill-User-Sessions
+}
+elseif ($choice -eq "c") {
+
+    Clean-MySessions
     exit
 
-} elseif ($choice -eq "q") {
+}
+elseif ($choice -eq "q") {
+
     exit
 
-} else {
+}
+else {
+
     $choice = ($choice -replace ",", " ").Trim()
+
     $SELECTED_INDEXES = @()
 
     foreach ($num in $choice -split "\s+") {
+
         $index = [int]$num - 1
 
         if ($index -lt 0 -or $index -ge $MATCHED_DBS.Count) {
+
             Write-Host "Invalid selection: $num"
             exit 1
         }
@@ -230,14 +453,16 @@ if (-not $choice) {
     $SELECTED_INDEXES = $SELECTED_INDEXES | Sort-Object -Unique
 
     if ($SELECTED_INDEXES.Count -gt 3) {
+
         Write-Host "Max 3 connections allowed"
         exit 1
     }
 }
 
-# -----------------------------
+# ---------------------------------
 # START CONNECTIONS
-# -----------------------------
+# ---------------------------------
+
 foreach ($idx in $SELECTED_INDEXES) {
 
     $DB = $MATCHED_DBS[$idx]
@@ -251,6 +476,8 @@ foreach ($idx in $SELECTED_INDEXES) {
         --output text
 
     Start-Connection $DB $PORT $ENDPOINT
+
+    Start-Sleep -Seconds 1
 }
 
 Write-Host ""
