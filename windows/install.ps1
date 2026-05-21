@@ -109,7 +109,7 @@ foreach ($env in @("uat","prod")) {
 
 function start-ssm-setup {
 
-$choice = Read-Host "Continue full setup[aws-auth,dbprod,dbuat,dbpc]? (y/n)"
+$choice = Read-Host "Continue full setup[aws-auth,dbprod,dbuat]? (y/n)"
 if ($choice -ne "y") {
     Write-Host "Skipping setup..."
     return
@@ -129,21 +129,12 @@ $uatChoice = Read-Host "Open UAT DB tunnels? (y/n)"
 if ($uatChoice -eq "y") {
     try { dbuat } catch { Write-Host "dbuat failed" }
 }
-
-# PORT CHECK
-if ($prodChoice -eq "y" -or $uatChoice -eq "y") {
-    try { dbpc } catch { Write-Host "Port check failed" }
-}
-
 Write-Host "Setup complete"
-
 }
-
 function uat { win-connect uat }
 function prod { win-connect prod }
 function dbuat { rds uat }
 function dbprod { rds prod }
-function dbpc { db-pc }
 
 start-ssm-setup
 
