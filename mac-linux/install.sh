@@ -248,14 +248,7 @@ start_ssm_setup() {
   if [ "$uatChoice" = "y" ]; then
     dbuat
   fi
-
-  # PORT CHECK
-  if [ "$prodChoice" = "y" ] || [ "$uatChoice" = "y" ]; then
-    echo "⏳ Waiting for tunnels to be ready..."
-    sleep 4
-    dbpc
-  fi
-
+  
   echo "Setup complete"
 }
 
@@ -284,11 +277,4 @@ log "🎉 Setup Complete!"
 log ""
 log "👉 Reload shell:"
 log "   source $SHELL_FILE"
-log ""
-log "👉 Usage:"
-log "   uat     - connect to uat servers"
-log "   prod    - connect to prod servers"
-log "   dbuat   - open DB tunnel (uat)"
-log "   dbprod  - open DB tunnel (prod)"
-log "   dbpc    - check active ports"
 log ""
