@@ -135,6 +135,8 @@ function uat { win-connect uat }
 function prod { win-connect prod }
 function dbuat { rds uat }
 function dbprod { rds prod }
+function dbpc { db-pc } 
+
 
 start-ssm-setup
 
