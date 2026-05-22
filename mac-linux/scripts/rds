@@ -96,7 +96,6 @@ kill_port() {
     kill -9 "$PID" 2>/dev/null || true
   done
 }
-
 clean_my_sessions() {
 
   echo ""
@@ -108,6 +107,10 @@ clean_my_sessions() {
     --query "Arn" \
     --output text | awk -F'/' '{print $NF}')
 
+  # ---------------------------------
+  # TERMINATE ALL MY SSM SESSIONS
+  # ---------------------------------
+
   SESSIONS=($(aws ssm describe-sessions \
     --state Active \
     --region "$REGION" \
@@ -115,7 +118,24 @@ clean_my_sessions() {
     --query "Sessions[?DocumentName=='AWS-StartPortForwardingSessionToRemoteHost'].[SessionId,Owner]" \
     --output text | awk -v user="$USER" '$2 ~ user {print $1}'))
 
-  ACTIVE_FOUND=false
+  if [ ${#SESSIONS[@]} -eq 0 ]; then
+    echo "No active database sessions found"
+  fi
+
+  for SESSION_ID in "${SESSIONS[@]}"; do
+
+    echo "Closing session: $SESSION_ID"
+
+    aws ssm terminate-session \
+      --session-id "$SESSION_ID" \
+      --region "$REGION" \
+      --profile "$PROFILE" >/dev/null 2>&1 || true
+
+  done
+
+  # ---------------------------------
+  # REMOVE LOCAL PID FILES ONLY
+  # ---------------------------------
 
   while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
 
@@ -134,45 +154,15 @@ clean_my_sessions() {
 
     PID_FILE="/tmp/ssm-$PORT.pid"
 
-    # ONLY process active local tunnel
     if [ -f "$PID_FILE" ]; then
 
-      OLD_PID=$(cat "$PID_FILE" 2>/dev/null || true)
+      echo "Closing tunnel: $DB (Port: $PORT)"
 
-      if [ -n "${OLD_PID:-}" ] && \
-         ps -p "$OLD_PID" >/dev/null 2>&1; then
+      rm -f "$PID_FILE"
 
-        ACTIVE_FOUND=true
-
-        # terminate ONE session
-        if [ ${#SESSIONS[@]} -gt 0 ]; then
-
-          SESSION_ID="${SESSIONS[0]}"
-
-          echo "Closing session: $SESSION_ID"
-
-          aws ssm terminate-session \
-            --session-id "$SESSION_ID" \
-            --region "$REGION" \
-            --profile "$PROFILE" >/dev/null 2>&1 || true
-
-          SESSIONS=("${SESSIONS[@]:1}")
-        fi
-
-        echo "Closing tunnel: $DB (Port: $PORT)"
-
-        kill -9 "$OLD_PID" 2>/dev/null || true
-
-        rm -f "$PID_FILE"
-
-      fi
     fi
 
   done < "$MAP_FILE"
-
-  if [ "$ACTIVE_FOUND" = false ]; then
-    echo "No active database sessions found"
-  fi
 
   echo ""
   echo "✅ $PROFILE database sessions cleared"

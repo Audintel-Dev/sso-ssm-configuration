@@ -225,7 +225,7 @@ start_ssm_setup() {
   [ -t 0 ] || return
 
   echo ""
-  echo -n "Continue full setup[aws-auth,dbprod,dbuat,dbpc]? (y/n): "
+  echo -n "Continue full setup[aws-auth,dbprod,dbuat]? (y/n): "
   read choice
   [ "$choice" != "y" ] && echo "Skipping setup..." && return
 
