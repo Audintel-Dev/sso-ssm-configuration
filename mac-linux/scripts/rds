@@ -44,7 +44,6 @@ JUMPS=($(aws ec2 describe-instances \
 
 declare -A SESSION_COUNTS
 
-# Fetch all active targets once
 ALL_TARGETS=$(aws ssm describe-sessions \
   --state Active \
   --region "$REGION" \
@@ -52,7 +51,6 @@ ALL_TARGETS=$(aws ssm describe-sessions \
   --query "Sessions[].Target" \
   --output text)
 
-# Build counts safely
 for target in $ALL_TARGETS; do
 
   CURRENT=${SESSION_COUNTS["$target"]:-0}
@@ -84,18 +82,6 @@ echo "Connected via secure gateway ($JUMP)"
 # FUNCTIONS
 # ---------------------------------
 
-kill_port() {
-
-  local PORT=$1
-
-  PIDS=$(lsof -tiTCP:"$PORT" 2>/dev/null || true)
-
-  [ -z "$PIDS" ] && return 0
-
-  echo "$PIDS" | while read PID; do
-    kill -9 "$PID" 2>/dev/null || true
-  done
-}
 clean_my_sessions() {
 
   echo ""
@@ -108,7 +94,7 @@ clean_my_sessions() {
     --output text | awk -F'/' '{print $NF}')
 
   # ---------------------------------
-  # TERMINATE ALL MY SSM SESSIONS
+  # TERMINATE MY ACTIVE SSM SESSIONS
   # ---------------------------------
 
   SESSIONS=($(aws ssm describe-sessions \
@@ -134,7 +120,7 @@ clean_my_sessions() {
   done
 
   # ---------------------------------
-  # REMOVE LOCAL PID FILES ONLY
+  # CLEAN PID FILES
   # ---------------------------------
 
   while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
@@ -156,9 +142,19 @@ clean_my_sessions() {
 
     if [ -f "$PID_FILE" ]; then
 
-      echo "Closing tunnel: $DB (Port: $PORT)"
+      OLD_PID=$(cat "$PID_FILE" 2>/dev/null || true)
+
+      if [ -n "${OLD_PID:-}" ]; then
+
+        kill "$OLD_PID" 2>/dev/null || true
+        sleep 1
+        kill -9 "$OLD_PID" 2>/dev/null || true
+
+      fi
 
       rm -f "$PID_FILE"
+
+      echo "Closed tunnel: $DB (Port: $PORT)"
 
     fi
 
@@ -174,12 +170,14 @@ start_connection() {
   local PORT=$2
   local ENDPOINT=$3
 
+  echo ""
   echo "Connecting: $DB (127.0.0.1:$PORT)"
 
   PID_FILE="/tmp/ssm-$PORT.pid"
+  LOG_FILE="/tmp/ssm-$PORT.log"
 
   # ---------------------------------
-  # Existing tunnel validation
+  # EXISTING PID VALIDATION
   # ---------------------------------
 
   if [ -f "$PID_FILE" ]; then
@@ -189,18 +187,24 @@ start_connection() {
     if [ -n "${OLD_PID:-}" ] && \
        ps -p "$OLD_PID" >/dev/null 2>&1; then
 
+      # Check actual listener
       if lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
 
-        echo "Tunnel already active for $DB on port $PORT"
+        echo "✅ Existing tunnel already active"
+        echo "Reusing connection for $DB"
+
         return
 
       else
 
-        echo "Stale tunnel detected for $DB on port $PORT"
+        echo "⚠️ Stale tunnel detected"
 
+        kill "$OLD_PID" 2>/dev/null || true
+        sleep 1
         kill -9 "$OLD_PID" 2>/dev/null || true
 
         rm -f "$PID_FILE"
+
       fi
 
     else
@@ -210,10 +214,24 @@ start_connection() {
     fi
   fi
 
-  # cleanup stale listener
-  kill_port "$PORT"
+  # ---------------------------------
+  # SAFETY CHECK
+  # ---------------------------------
 
-  LOG_FILE="/tmp/ssm-$PORT.log"
+  if lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+
+    echo "⚠️ Port $PORT already in use"
+
+    echo "Assuming tunnel already exists"
+    echo "Skipping recreation to avoid Sequel Ace disconnect"
+
+    return
+
+  fi
+
+  # ---------------------------------
+  # START NEW SSM TUNNEL
+  # ---------------------------------
 
   nohup aws ssm start-session \
     --target "$JUMP" \
@@ -229,7 +247,7 @@ start_connection() {
 
   disown "$WORKER_PID" 2>/dev/null || true
 
-  echo "Connection tunnel started for $DB"
+  echo "✅ Connection tunnel started for $DB"
 }
 
 # ---------------------------------
@@ -270,7 +288,7 @@ done < "$MAP_FILE"
 }
 
 # ---------------------------------
-# SHOW DB LIST
+# SHOW DATABASES
 # ---------------------------------
 
 echo ""
@@ -286,7 +304,7 @@ done
 
 echo ""
 echo "Enter database number to connect (e.g. 1 or 1,2,3)"
-echo "Press Enter[Don't Use Unless Require] → Connect ALL"
+echo "Press Enter [Don't Use Unless Required] → Connect ALL"
 echo "Type 'c' → Clean My Sessions"
 echo "Type 'q' → Exit"
 echo ""
@@ -333,6 +351,7 @@ else
     echo "⚠️ Max $MAX connections allowed"
     exit 1
   fi
+
 fi
 
 # ---------------------------------
@@ -362,3 +381,367 @@ echo "--------------------------------------------"
 echo "✅ Connection ready"
 echo "Use: 127.0.0.1:<port>"
 echo "--------------------------------------------"
+# #!/usr/bin/env bash
+
+# set -euo pipefail
+
+# PROFILE="${1:-}"
+# SEARCH_TERM="${2:-}"
+# MAP_FILE="$HOME/.rds-map"
+
+# [ -z "$PROFILE" ] && {
+#   echo "Usage:"
+#   echo "  dbuat"
+#   echo "  dbprod"
+#   exit 1
+# }
+
+# [ ! -f "$MAP_FILE" ] && {
+#   echo "❌ Mapping file not found (~/.rds-map)"
+#   exit 1
+# }
+
+# REGION=$(aws configure get region --profile "$PROFILE")
+# REGION=${REGION:-us-east-1}
+
+# aws sts get-caller-identity --profile "$PROFILE" >/dev/null 2>&1 || \
+# aws sso login --profile "$PROFILE"
+
+# # ---------------------------------
+# # FIND BEST JUMPHOST
+# # ---------------------------------
+
+# echo "Fetching connection..."
+
+# JUMPS=($(aws ec2 describe-instances \
+#   --profile "$PROFILE" \
+#   --region "$REGION" \
+#   --filters "Name=instance-state-name,Values=running" \
+#   --query "Reservations[].Instances[?contains(join('', Tags[?Key=='Name'].Value), 'Jumphost')].InstanceId" \
+#   --output text))
+
+# [ ${#JUMPS[@]} -eq 0 ] && {
+#   echo "❌ No gateway hosts available"
+#   exit 1
+# }
+
+# declare -A SESSION_COUNTS
+
+# # Fetch all active targets once
+# ALL_TARGETS=$(aws ssm describe-sessions \
+#   --state Active \
+#   --region "$REGION" \
+#   --profile "$PROFILE" \
+#   --query "Sessions[].Target" \
+#   --output text)
+
+# # Build counts safely
+# for target in $ALL_TARGETS; do
+
+#   CURRENT=${SESSION_COUNTS["$target"]:-0}
+#   SESSION_COUNTS["$target"]=$((CURRENT + 1))
+
+# done
+
+# BEST_JUMP=""
+# MIN_CONN=999999
+
+# for candidate in "${JUMPS[@]}"; do
+
+#   COUNT=${SESSION_COUNTS["$candidate"]:-0}
+
+#   echo "Jumphost: $candidate -> Active Sessions: $COUNT"
+
+#   if (( COUNT < MIN_CONN )); then
+#     MIN_CONN=$COUNT
+#     BEST_JUMP="$candidate"
+#   fi
+
+# done
+
+# JUMP="$BEST_JUMP"
+
+# echo "Connected via secure gateway ($JUMP)"
+
+# # ---------------------------------
+# # FUNCTIONS
+# # ---------------------------------
+
+# kill_port() {
+
+#   local PORT=$1
+
+#   PIDS=$(lsof -tiTCP:"$PORT" 2>/dev/null || true)
+
+#   [ -z "$PIDS" ] && return 0
+
+#   echo "$PIDS" | while read PID; do
+#     kill -9 "$PID" 2>/dev/null || true
+#   done
+# }
+# clean_my_sessions() {
+
+#   echo ""
+#   echo "Cleaning $PROFILE database sessions..."
+#   echo ""
+
+#   USER=$(aws sts get-caller-identity \
+#     --profile "$PROFILE" \
+#     --query "Arn" \
+#     --output text | awk -F'/' '{print $NF}')
+
+#   # ---------------------------------
+#   # TERMINATE ALL MY SSM SESSIONS
+#   # ---------------------------------
+
+#   SESSIONS=($(aws ssm describe-sessions \
+#     --state Active \
+#     --region "$REGION" \
+#     --profile "$PROFILE" \
+#     --query "Sessions[?DocumentName=='AWS-StartPortForwardingSessionToRemoteHost'].[SessionId,Owner]" \
+#     --output text | awk -v user="$USER" '$2 ~ user {print $1}'))
+
+#   if [ ${#SESSIONS[@]} -eq 0 ]; then
+#     echo "No active database sessions found"
+#   fi
+
+#   for SESSION_ID in "${SESSIONS[@]}"; do
+
+#     echo "Closing session: $SESSION_ID"
+
+#     aws ssm terminate-session \
+#       --session-id "$SESSION_ID" \
+#       --region "$REGION" \
+#       --profile "$PROFILE" >/dev/null 2>&1 || true
+
+#   done
+
+#   # ---------------------------------
+#   # REMOVE LOCAL PID FILES ONLY
+#   # ---------------------------------
+
+#   while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
+
+#     DB=$(echo "$DB" | tr -d '\r' | xargs)
+#     PORT=$(echo "$PORT" | tr -d '\r' | xargs)
+
+#     [[ -z "$DB" ]] && continue
+
+#     case "$DB" in
+#       "[uat_databases]") CURRENT_ENV="uat"; continue ;;
+#       "[prod_databases]") CURRENT_ENV="prod"; continue ;;
+#     esac
+
+#     [[ "$DB" =~ ^# ]] && continue
+#     [[ "$CURRENT_ENV" != "$PROFILE" ]] && continue
+
+#     PID_FILE="/tmp/ssm-$PORT.pid"
+
+#     if [ -f "$PID_FILE" ]; then
+
+#       echo "Closing tunnel: $DB (Port: $PORT)"
+
+#       rm -f "$PID_FILE"
+
+#     fi
+
+#   done < "$MAP_FILE"
+
+#   echo ""
+#   echo "✅ $PROFILE database sessions cleared"
+# }
+
+# start_connection() {
+
+#   local DB=$1
+#   local PORT=$2
+#   local ENDPOINT=$3
+
+#   echo "Connecting: $DB (127.0.0.1:$PORT)"
+
+#   PID_FILE="/tmp/ssm-$PORT.pid"
+
+#   # ---------------------------------
+#   # Existing tunnel validation
+#   # ---------------------------------
+
+#   if [ -f "$PID_FILE" ]; then
+
+#     OLD_PID=$(cat "$PID_FILE" 2>/dev/null || true)
+
+#     if [ -n "${OLD_PID:-}" ] && \
+#        ps -p "$OLD_PID" >/dev/null 2>&1; then
+
+#       if lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+
+#         echo "Tunnel already active for $DB on port $PORT"
+#         return
+
+#       else
+
+#         echo "Stale tunnel detected for $DB on port $PORT"
+
+#         kill -9 "$OLD_PID" 2>/dev/null || true
+
+#         rm -f "$PID_FILE"
+#       fi
+
+#     else
+
+#       rm -f "$PID_FILE"
+
+#     fi
+#   fi
+
+#   # cleanup stale listener
+#   kill_port "$PORT"
+
+#   LOG_FILE="/tmp/ssm-$PORT.log"
+
+#   nohup aws ssm start-session \
+#     --target "$JUMP" \
+#     --profile "$PROFILE" \
+#     --region "$REGION" \
+#     --document-name AWS-StartPortForwardingSessionToRemoteHost \
+#     --parameters "{\"host\":[\"$ENDPOINT\"],\"portNumber\":[\"3306\"],\"localPortNumber\":[\"$PORT\"]}" \
+#     > "$LOG_FILE" 2>&1 < /dev/null &
+
+#   WORKER_PID=$!
+
+#   echo "$WORKER_PID" > "$PID_FILE"
+
+#   disown "$WORKER_PID" 2>/dev/null || true
+
+#   echo "Connection tunnel started for $DB"
+# }
+
+# # ---------------------------------
+# # READ DB MAP
+# # ---------------------------------
+
+# CURRENT_ENV=""
+# MATCHED_DBS=()
+# MATCHED_PORTS=()
+
+# while IFS="=" read -r DB PORT || [ -n "$DB" ]; do
+
+#   DB=$(echo "$DB" | tr -d '\r' | xargs)
+#   PORT=$(echo "$PORT" | tr -d '\r' | xargs)
+
+#   [[ -z "$DB" ]] && continue
+
+#   case "$DB" in
+#     "[uat_databases]") CURRENT_ENV="uat"; continue ;;
+#     "[prod_databases]") CURRENT_ENV="prod"; continue ;;
+#   esac
+
+#   [[ "$DB" =~ ^# ]] && continue
+#   [[ "$CURRENT_ENV" != "$PROFILE" ]] && continue
+
+#   if [[ -n "$SEARCH_TERM" ]]; then
+#     echo "$DB" | grep -qi "$SEARCH_TERM" || continue
+#   fi
+
+#   MATCHED_DBS+=("$DB")
+#   MATCHED_PORTS+=("$PORT")
+
+# done < "$MAP_FILE"
+
+# [ ${#MATCHED_DBS[@]} -eq 0 ] && {
+#   echo "❌ No databases found"
+#   exit 1
+# }
+
+# # ---------------------------------
+# # SHOW DB LIST
+# # ---------------------------------
+
+# echo ""
+# echo "Available Databases:"
+# echo ""
+
+# for i in "${!MATCHED_DBS[@]}"; do
+#   printf "%-3s %-20s (Port: %s)\n" \
+#     "$((i+1))" \
+#     "${MATCHED_DBS[$i]}" \
+#     "${MATCHED_PORTS[$i]}"
+# done
+
+# echo ""
+# echo "Enter database number to connect (e.g. 1 or 1,2,3)"
+# echo "Press Enter[Don't Use Unless Require] → Connect ALL"
+# echo "Type 'c' → Clean My Sessions"
+# echo "Type 'q' → Exit"
+# echo ""
+
+# read -rp "Selection: " choice
+
+# if [[ -z "$choice" ]]; then
+
+#   SELECTED_INDEXES=($(seq 0 $((${#MATCHED_DBS[@]} - 1))))
+
+# elif [[ "$choice" == "c" ]]; then
+
+#   clean_my_sessions
+#   exit 0
+
+# elif [[ "$choice" == "q" ]]; then
+
+#   exit 0
+
+# else
+
+#   choice=$(echo "$choice" | tr ',' ' ' | xargs)
+
+#   SELECTED_INDEXES=()
+
+#   for num in $choice; do
+
+#     index=$((num-1))
+
+#     if [[ $index -lt 0 || $index -ge ${#MATCHED_DBS[@]} ]]; then
+#       echo "❌ Invalid selection: $num"
+#       exit 1
+#     fi
+
+#     SELECTED_INDEXES+=("$index")
+
+#   done
+
+#   SELECTED_INDEXES=($(printf "%s\n" "${SELECTED_INDEXES[@]}" | sort -u))
+
+#   MAX=3
+
+#   if [ "${#SELECTED_INDEXES[@]}" -gt "$MAX" ]; then
+#     echo "⚠️ Max $MAX connections allowed"
+#     exit 1
+#   fi
+# fi
+
+# # ---------------------------------
+# # START CONNECTIONS
+# # ---------------------------------
+
+# for idx in "${SELECTED_INDEXES[@]}"; do
+
+#   DB="${MATCHED_DBS[$idx]}"
+#   PORT="${MATCHED_PORTS[$idx]}"
+
+#   ENDPOINT=$(aws rds describe-db-instances \
+#     --profile "$PROFILE" \
+#     --region "$REGION" \
+#     --db-instance-identifier "$DB" \
+#     --query "DBInstances[0].Endpoint.Address" \
+#     --output text)
+
+#   start_connection "$DB" "$PORT" "$ENDPOINT"
+
+#   sleep 1
+
+# done
+
+# echo ""
+# echo "--------------------------------------------"
+# echo "✅ Connection ready"
+# echo "Use: 127.0.0.1:<port>"
+# echo "--------------------------------------------"
