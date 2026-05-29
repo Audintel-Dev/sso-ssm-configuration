@@ -9,6 +9,7 @@ if (-not $PROFILE) {
     Write-Host "Usage:"
     Write-Host "  dbuat"
     Write-Host "  dbprod"
+    Write-Host "  rds prod audinteldb"
     exit 1
 }
 
@@ -155,10 +156,6 @@ function Clean-MySessions {
             --output text
     ).Split("/")[-1]
 
-    # ---------------------------------
-    # TERMINATE ONLY MY SESSIONS
-    # ---------------------------------
-
     $sessions = aws ssm describe-sessions `
         --state Active `
         --region $REGION `
@@ -187,10 +184,6 @@ function Clean-MySessions {
                 --profile $PROFILE *> $null
         }
     }
-
-    # ---------------------------------
-    # CLEAN LOCAL TUNNELS
-    # ---------------------------------
 
     $CURRENT_ENV = ""
 
@@ -346,6 +339,35 @@ function Start-Connection {
     $PROC.Id | Set-Content $PID_FILE
 
     Write-Host "Connection tunnel started for $DB"
+
+    # ---------------------------------
+    # WAIT FOR TUNNEL READY
+    # ---------------------------------
+
+    $timeout = 30
+    $elapsed = 0
+
+    do {
+
+        Start-Sleep 1
+
+        $ready = Get-NetTCPConnection `
+            -LocalPort $PORT `
+            -ErrorAction SilentlyContinue
+
+        $elapsed++
+
+    } until ($ready -or $elapsed -ge $timeout)
+
+    if ($ready) {
+
+        Write-Host "Tunnel ready for $DB"
+    }
+    else {
+
+        Write-Host "Tunnel startup failed for $DB"
+        exit 1
+    }
 }
 
 # -----------------------------
@@ -375,8 +397,6 @@ Get-Content $MAP_FILE | ForEach-Object {
     $DB = $parts[0].Trim()
     $PORT = $parts[1].Trim()
 
-    if ($SEARCH_TERM -and ($DB -notmatch $SEARCH_TERM)) { return }
-
     $MATCHED_DBS += $DB
     $MATCHED_PORTS += $PORT
 }
@@ -387,75 +407,99 @@ if ($MATCHED_DBS.Count -eq 0) {
 }
 
 # -----------------------------
-# SHOW DB LIST
+# DIRECT MODE
 # -----------------------------
 
-Write-Host ""
-Write-Host "Available Databases:"
-Write-Host ""
+if ($SEARCH_TERM) {
 
-for ($i=0; $i -lt $MATCHED_DBS.Count; $i++) {
+    $matchedIndex = -1
 
-    "{0,-3} {1,-20} (Port: {2})" -f `
-        ($i+1), `
-        $MATCHED_DBS[$i], `
-        $MATCHED_PORTS[$i]
-}
+    for ($i = 0; $i -lt $MATCHED_DBS.Count; $i++) {
 
-Write-Host ""
-Write-Host "Enter database number to connect (e.g. 1 or 1,2,3)"
-Write-Host "Press Enter[Don't Use Unless Require] - connect ALL"
-Write-Host "Type c - clean old connections"
-Write-Host "Type q - exit"
-Write-Host ""
+        if ($MATCHED_DBS[$i] -eq $SEARCH_TERM) {
 
-$choice = Read-Host "Selection"
+            $matchedIndex = $i
+            break
+        }
+    }
 
-# ---------------------------------
-# PROCESS INPUT
-# ---------------------------------
+    if ($matchedIndex -eq -1) {
 
-if (-not $choice) {
+        Write-Host "Database not found: $SEARCH_TERM"
+        exit 1
+    }
 
-    $SELECTED_INDEXES = 0..($MATCHED_DBS.Count-1)
-
-}
-elseif ($choice -eq "c") {
-
-    Clean-MySessions
-    exit
-
-}
-elseif ($choice -eq "q") {
-
-    exit
-
+    $SELECTED_INDEXES = @($matchedIndex)
 }
 else {
 
-    $choice = ($choice -replace ",", " ").Trim()
+    # -----------------------------
+    # SHOW DB LIST
+    # -----------------------------
 
-    $SELECTED_INDEXES = @()
+    Write-Host ""
+    Write-Host "Available Databases:"
+    Write-Host ""
 
-    foreach ($num in $choice -split "\s+") {
+    for ($i=0; $i -lt $MATCHED_DBS.Count; $i++) {
 
-        $index = [int]$num - 1
-
-        if ($index -lt 0 -or $index -ge $MATCHED_DBS.Count) {
-
-            Write-Host "Invalid selection: $num"
-            exit 1
-        }
-
-        $SELECTED_INDEXES += $index
+        "{0,-3} {1,-20} (Port: {2})" -f `
+            ($i+1), `
+            $MATCHED_DBS[$i], `
+            $MATCHED_PORTS[$i]
     }
 
-    $SELECTED_INDEXES = $SELECTED_INDEXES | Sort-Object -Unique
+    Write-Host ""
+    Write-Host "Enter database number to connect (e.g. 1 or 1,2,3)"
+    Write-Host "Press Enter[Don't Use Unless Require] - connect ALL"
+    Write-Host "Type c - clean old connections"
+    Write-Host "Type q - exit"
+    Write-Host ""
 
-    if ($SELECTED_INDEXES.Count -gt 3) {
+    $choice = Read-Host "Selection"
 
-        Write-Host "Max 3 connections allowed"
-        exit 1
+    if (-not $choice) {
+
+        $SELECTED_INDEXES = 0..($MATCHED_DBS.Count-1)
+
+    }
+    elseif ($choice -eq "c") {
+
+        Clean-MySessions
+        exit
+
+    }
+    elseif ($choice -eq "q") {
+
+        exit
+
+    }
+    else {
+
+        $choice = ($choice -replace ",", " ").Trim()
+
+        $SELECTED_INDEXES = @()
+
+        foreach ($num in $choice -split "\s+") {
+
+            $index = [int]$num - 1
+
+            if ($index -lt 0 -or $index -ge $MATCHED_DBS.Count) {
+
+                Write-Host "Invalid selection: $num"
+                exit 1
+            }
+
+            $SELECTED_INDEXES += $index
+        }
+
+        $SELECTED_INDEXES = $SELECTED_INDEXES | Sort-Object -Unique
+
+        if ($SELECTED_INDEXES.Count -gt 3) {
+
+            Write-Host "Max 3 connections allowed"
+            exit 1
+        }
     }
 }
 

@@ -53,7 +53,7 @@ if (-not (Get-Command session-manager-plugin -ErrorAction SilentlyContinue)) {
 # ----------------------------
 Write-Host "Installing scripts..."
 
-Get-ChildItem ".\scripts\*.ps1" | ForEach-Object {
+Get-ChildItem ".\scripts\*" | ForEach-Object {
     Copy-Item $_.FullName $bin -Force
     Write-Host "Installed $($_.Name)"
 }
@@ -77,71 +77,11 @@ New-Item -ItemType File -Force -Path $profilePath | Out-Null
 Write-Host "Updating PowerShell profile..."
 
 $block = @'
-
-# >>> SSM_SETUP >>>
-
-function aws-auto-login {
-
-if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
-    return
-}
-
-$profiles = aws configure list-profiles 2>$null
-
-foreach ($env in @("uat","prod")) {
-
-    if ($profiles -notcontains $env) {
-        Write-Host "Skipping $env (not configured)"
-        continue
-    }
-
-    aws sts get-caller-identity --profile $env 2>$null | Out-Null
-
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "Logging into $env..."
-        aws sso login --profile $env
-    } else {
-        Write-Host "$env already logged in"
-    }
-}
-
-}
-
-function start-ssm-setup {
-
-$choice = Read-Host "Continue full setup[aws-auth,dbprod,dbuat]? (y/n)"
-if ($choice -ne "y") {
-    Write-Host "Skipping setup..."
-    return
-}
-
-# AUTH
-aws-auto-login
-
-# PROD
-$prodChoice = Read-Host "Open PROD DB tunnels? (y/n)"
-if ($prodChoice -eq "y") {
-    try { dbprod } catch { Write-Host "dbprod failed" }
-}
-
-# UAT
-$uatChoice = Read-Host "Open UAT DB tunnels? (y/n)"
-if ($uatChoice -eq "y") {
-    try { dbuat } catch { Write-Host "dbuat failed" }
-}
-Write-Host "Setup complete"
-}
 function uat { win-connect uat }
 function prod { win-connect prod }
 function dbuat { rds uat }
 function dbprod { rds prod }
 function dbpc { db-pc } 
-
-
-start-ssm-setup
-
-# <<< SSM_SETUP <<<
-
 '@
 
 if (Test-Path $profilePath) {
