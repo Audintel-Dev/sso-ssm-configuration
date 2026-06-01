@@ -21,7 +21,7 @@ function test_port($port) {
 # ----------------------------
 Write-Host "Checking UAT Ports..."
 
-$uatPorts = @(3307, 3308, 3309)
+$uatPorts = @(3307, 3308, 3309, 3310, 3311)
 
 foreach ($port in $uatPorts) {
     if (test_port $port) {
