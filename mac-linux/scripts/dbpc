@@ -5,7 +5,7 @@ set -euo pipefail
 HOST="127.0.0.1"
 
 echo "🔍 Checking UAT Ports..."
-for port in 3307 3308 3309; do
+for port in {3307..3311}; do
   if nc -z "$HOST" "$port" >/dev/null 2>&1; then
     echo "✅ UAT Port $port is OPEN"
   else
