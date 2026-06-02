@@ -2,6 +2,29 @@ param(
     [int]$PORT
 )
 
+try {
+
+    $listener = Get-NetTCPConnection `
+        -LocalPort $PORT `
+        -State Listen `
+        -ErrorAction Stop
+
+    if ($listener) {
+
+        Write-Host "Tunnel already active on port $PORT"
+
+        exit 0
+    }
+
+}
+catch {
+    # Port not listening
+}
+
+# ---------------------------------------------------
+# OPEN TUNNEL
+# ---------------------------------------------------
+
 switch ($PORT) {
 
     3411 { rds prod audinteldb }
@@ -15,6 +38,8 @@ switch ($PORT) {
     3307 { rds uat uat-aud1-encrypted }
     3308 { rds uat uat-chr }
     3309 { rds uat uat-ffs }
+    3310 { rds uat uat-auspi }
+    3311 { rds uat uat-redwood }
 
     default {
 
