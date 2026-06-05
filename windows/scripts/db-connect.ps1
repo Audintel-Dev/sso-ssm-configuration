@@ -38,7 +38,6 @@ switch ($PORT) {
     3307 { rds uat uat-aud1-encrypted }
     3308 { rds uat uat-chr }
     3309 { rds uat uat-ffs }
-    3310 { rds uat uat-auspi }
     3311 { rds uat uat-redwood }
 
     default {
