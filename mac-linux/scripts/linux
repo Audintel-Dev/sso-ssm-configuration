@@ -8,7 +8,8 @@ if [ -z "${BASH_VERSION:-}" ]; then
   exit 1
 fi
 
-PROFILE="${1:?Usage: instances <uat|prod>}"
+PROFILE="${1:?Usage: linux <uat|prod> [instance-name]}"
+SEARCH_TERM="${2:-}"
 
 # ── Region ────────────────────────────────────────────────
 REGION=$(aws configure get region --profile "$PROFILE" 2>/dev/null || echo "us-east-1")
@@ -33,6 +34,19 @@ instances=$(aws ec2 describe-instances \
   --output json)
 
 [[ "$instances" == "[]" ]] && { echo "No running Linux instances found"; exit 1; }
+
+# ── Filter instances by name ──────────────────────────────
+if [[ -n "$SEARCH_TERM" ]]; then
+  instances=$(jq --arg search "$SEARCH_TERM" '
+    ($search | ascii_downcase) as $needle
+    | map(select((.Name // "" | ascii_downcase) | contains($needle)))
+  ' <<< "$instances")
+
+  [[ "$instances" == "[]" ]] && {
+    echo "No running Linux instances found matching '$SEARCH_TERM'"
+    exit 1
+  }
+fi
 
 # ── Display instances ─────────────────────────────────────
 printf "%-4s %-40s %-22s %-25s\n" "No" "Instance Name" "Instance ID" "Creation Time"

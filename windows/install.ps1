@@ -77,8 +77,8 @@ New-Item -ItemType File -Force -Path $profilePath | Out-Null
 Write-Host "Updating PowerShell profile..."
 
 $block = @'
-function uat { win-connect uat }
-function prod { win-connect prod }
+function uat { win-connect uat @args }
+function prod { win-connect prod @args }
 function dbuat { rds uat }
 function dbprod { rds prod }
 function dbpc { db-pc } 
@@ -106,4 +106,4 @@ Write-Host "Setup Complete!"
 Write-Host ""
 Write-Host "Reload PowerShell:"
 Write-Host "   . `$PROFILE"
-Write-Host "" 
+Write-Host ""
