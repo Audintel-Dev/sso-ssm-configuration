@@ -1,9 +1,10 @@
 param(
-    [string]$PROFILE
+    [string]$PROFILE,
+    [string]$SEARCH_TERM
 )
 
 if (-not $PROFILE) {
-    Write-Host "Usage: win-connect <uat|prod>"
+    Write-Host "Usage: win-connect <uat|prod> [instance-name]"
     exit 1
 }
 
@@ -56,6 +57,20 @@ $instances = $instances | Where-Object {
 if (-not $instances) {
     Write-Host "No running Linux instances found"
     exit 1
+}
+
+# ----------------------------
+# FILTER BY INSTANCE NAME
+# ----------------------------
+if ($SEARCH_TERM) {
+    $instances = @($instances | Where-Object {
+        $_.Name -and $_.Name -like "*$SEARCH_TERM*"
+    })
+
+    if (-not $instances) {
+        Write-Host "No running Linux instances found matching '$SEARCH_TERM'"
+        exit 1
+    }
 }
 
 # ----------------------------

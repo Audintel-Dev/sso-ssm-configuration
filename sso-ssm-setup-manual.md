@@ -438,6 +438,15 @@ source ~/.bashrc
 | `dbprod` | Open tunnels for Production databases |
 | `dbpc`   | Check if ports are actively listening |
 
+Add an instance-name keyword after `uat` or `prod` to display only matching
+running Linux instances. The search is case-insensitive.
+
+```bash
+uat ai-parcel
+uat web
+prod report
+```
+
 ---
 
 ## 💡 Notes
@@ -601,6 +610,5 @@ To connect to **`ffsdb` (prod)**:
 5. Close the current terminal and open a new one.
 
 ✅ The latest changes will now be applied to your system.
-
 
 
