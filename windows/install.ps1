@@ -27,26 +27,26 @@ if ($env:PATH -notlike "*$bin*") {
 # ----------------------------
 # INSTALL AWS CLI
 # ----------------------------
-if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing AWS CLI..."
+# if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+#     Write-Host "Installing AWS CLI..."
 
-    $msi = "$env:TEMP\aws.msi"
-    Invoke-WebRequest "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi
+#     $msi = "$env:TEMP\aws.msi"
+#     Invoke-WebRequest "https://awscli.amazonaws.com/AWSCLIV2.msi" -OutFile $msi
 
-    Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msi`""
-}
+#     Start-Process msiexec.exe -Wait -ArgumentList "/i `"$msi`""
+# }
 
 # ----------------------------
 # INSTALL SESSION MANAGER
 # ----------------------------
-if (-not (Get-Command session-manager-plugin -ErrorAction SilentlyContinue)) {
-    Write-Host "Installing Session Manager Plugin..."
+# if (-not (Get-Command session-manager-plugin -ErrorAction SilentlyContinue)) {
+#     Write-Host "Installing Session Manager Plugin..."
 
-    $ssm = "$env:TEMP\ssm.exe"
-    Invoke-WebRequest "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/windows/SessionManagerPluginSetup.exe" -OutFile $ssm
+#     $ssm = "$env:TEMP\ssm.exe"
+#     Invoke-WebRequest "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/windows/SessionManagerPluginSetup.exe" -OutFile $ssm
 
-    Start-Process $ssm -Wait
-}
+#     Start-Process $ssm -Wait
+# }
 
 # ----------------------------
 # INSTALL SCRIPTS
