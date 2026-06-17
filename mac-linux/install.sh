@@ -83,45 +83,45 @@ log "🔍 Running pre-flight checks..."
 # ----------------------------
 # Install dependencies
 # ----------------------------
-# install_mac() {
-#   log "🍺 Installing dependencies (Mac)..."
+install_mac() {
+  log "🍺 Installing dependencies (Mac)..."
 
-#   if ! command -v brew >/dev/null 2>&1; then
-#     echo "❌ Homebrew not found. Install from https://brew.sh"
-#     exit 1
-#   fi
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "❌ Homebrew not found. Install from https://brew.sh"
+    exit 1
+  fi
 
-#   brew update
+  brew update
 
-#   brew list awscli >/dev/null 2>&1 || brew install awscli
-#   brew list jq >/dev/null 2>&1 || brew install jq
+  brew list awscli >/dev/null 2>&1 || brew install awscli
+  brew list jq >/dev/null 2>&1 || brew install jq
 
-#   if ! command -v session-manager-plugin >/dev/null 2>&1; then
-#     brew install --cask session-manager-plugin
-#   fi
-# }
+  if ! command -v session-manager-plugin >/dev/null 2>&1; then
+    brew install --cask session-manager-plugin
+  fi
+}
 
-# install_linux() {
-#   log "🐧 Installing dependencies (Linux/WSL)..."
+install_linux() {
+  log "🐧 Installing dependencies (Linux/WSL)..."
 
-#   run_cmd "$SUDO apt update -y"
-#   run_cmd "$SUDO apt install -y unzip curl jq"
+  run_cmd "$SUDO apt update -y"
+  run_cmd "$SUDO apt install -y unzip curl jq"
 
-#   if ! command -v aws >/dev/null 2>&1; then
-#     log "⬇️ Installing AWS CLI..."
-#     run_cmd "curl -s https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip"
-#     run_cmd "unzip -q awscliv2.zip"
-#     run_cmd "$SUDO ./aws/install"
-#     run_cmd "rm -rf aws awscliv2.zip"
-#   fi
+  if ! command -v aws >/dev/null 2>&1; then
+    log "⬇️ Installing AWS CLI..."
+    run_cmd "curl -s https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip"
+    run_cmd "unzip -q awscliv2.zip"
+    run_cmd "$SUDO ./aws/install"
+    run_cmd "rm -rf aws awscliv2.zip"
+  fi
 
-#   if ! command -v session-manager-plugin >/dev/null 2>&1; then
-#     log "⬇️ Installing Session Manager Plugin..."
-#     run_cmd "curl -s https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb -o ssm.deb"
-#     run_cmd "$SUDO dpkg -i ssm.deb"
-#     run_cmd "rm -f ssm.deb"
-#   fi
-# }
+  if ! command -v session-manager-plugin >/dev/null 2>&1; then
+    log "⬇️ Installing Session Manager Plugin..."
+    run_cmd "curl -s https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb -o ssm.deb"
+    run_cmd "$SUDO dpkg -i ssm.deb"
+    run_cmd "rm -f ssm.deb"
+  fi
+}
 
 if [[ "$OS" == "mac" ]]; then
   install_mac
