@@ -137,6 +137,8 @@ append_block() {
   local FILE="$2"
   local CONTENT="$3"
 
+  echo "Appending $NAME to $FILE"
+
   {
     echo ""
     echo "# >>> $NAME >>>"
@@ -144,7 +146,6 @@ append_block() {
     echo "# <<< $NAME <<<"
   } >> "$FILE"
 }
-
 # ----------------------------
 # Aliases
 # ----------------------------
@@ -160,41 +161,41 @@ alias dbprod="rds prod"
 # ---------------------------------
 
 
-append_block "SSM_SETUP" "$SHELL_FILE" '
-start_ssm_setup() {
+# append_block "SSM_SETUP" "$SHELL_FILE" '
+# start_ssm_setup() {
 
-  [ -t 0 ] || return
+#   [ -t 0 ] || return
 
-  echo ""
-  echo -n "Continue full setup[aws-auth,dbprod,dbuat]? (y/n): "
-  read choice
-  [ "$choice" != "y" ] && echo "Skipping setup..." && return
+#   echo ""
+#   echo -n "Continue full setup[aws-auth,dbprod,dbuat]? (y/n): "
+#   read choice
+#   [ "$choice" != "y" ] && echo "Skipping setup..." && return
 
-  aws_auto_login() {
-  aws sts get-caller-identity --profile uat >/dev/null 2>&1 || aws-login uat
-  aws sts get-caller-identity --profile prod >/dev/null 2>&1 || aws-login prod
-  }
-  aws_auto_login
+#   aws_auto_login() {
+#   aws sts get-caller-identity --profile uat >/dev/null 2>&1 || aws-login uat
+#   aws sts get-caller-identity --profile prod >/dev/null 2>&1 || aws-login prod
+#   }
+#   aws_auto_login
 
-  # PROD
-  echo -n "Open PROD DB tunnels? (y/n): "
-  read prodChoice
-  if [ "$prodChoice" = "y" ]; then
-    dbprod
-  fi
+#   # PROD
+#   echo -n "Open PROD DB tunnels? (y/n): "
+#   read prodChoice
+#   if [ "$prodChoice" = "y" ]; then
+#     dbprod
+#   fi
 
-  # UAT
-  echo -n "Open UAT DB tunnels? (y/n): "
-  read uatChoice
-  if [ "$uatChoice" = "y" ]; then
-    dbuat
-  fi
+#   # UAT
+#   echo -n "Open UAT DB tunnels? (y/n): "
+#   read uatChoice
+#   if [ "$uatChoice" = "y" ]; then
+#     dbuat
+#   fi
   
-  echo "Setup complete"
-}
+#   echo "Setup complete"
+# }
 
-start_ssm_setup
-'
+# start_ssm_setup
+# '
 
 
 
@@ -202,6 +203,8 @@ start_ssm_setup
 # PATH FIX
 # ----------------------------
 append_if_not_exists 'export PATH="$HOME/bin:$PATH"' "$SHELL_FILE"
+
+source "$SHELL_FILE"
 
 # ----------------------------
 # DONE
