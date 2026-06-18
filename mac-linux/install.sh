@@ -25,109 +25,52 @@ append_if_not_exists() {
   grep -qxF "$LINE" "$FILE" || echo "$LINE" >> "$FILE"
 }
 
-# Mac vs Linux sed compatibility
-sed_inplace() {
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    sed -i '' "$@"
-  else
-    sed -i "$@"
-  fi
-}
 
-# ----------------------------
-# SUDO HANDLING
-# ----------------------------
-SUDO=""
-if [ "$EUID" -ne 0 ]; then
-  SUDO="sudo"
-fi
-
-# ----------------------------
-# Validate bash
-# ----------------------------
-if [ -z "$BASH_VERSION" ]; then
-  echo "❌ Please run with bash: ./install.sh"
-  exit 1
-fi
 
 log "🚀 Starting Dev Environment Setup..."
 
-# ----------------------------
-# Detect OS
-# ----------------------------
-OS="unknown"
-if [[ "$OSTYPE" == "darwin"* ]]; then
-  OS="mac"
-elif grep -qi microsoft /proc/version 2>/dev/null; then
-  OS="wsl"
-else
-  OS="linux"
-fi
-
-log "👉 Detected OS: $OS"
-
-# ----------------------------
-# Ensure /usr/local/bin exists
-# ----------------------------
-run_cmd "$SUDO mkdir -p /usr/local/bin"
 
 # ----------------------------
 # Pre-flight checks
 # ----------------------------
 log "🔍 Running pre-flight checks..."
 
-# command -v curl >/dev/null 2>&1 || log "⚠️ curl not found"
-# command -v jq >/dev/null 2>&1 || log "⚠️ jq not found"
-# command -v aws >/dev/null 2>&1 || log "⚠️ aws cli not found"
-
 # ----------------------------
 # Install dependencies
 # ----------------------------
 install_mac() {
-  log "🍺 Installing dependencies (Mac)..."
+  log "🍺 Installing AWS CLI v2 and Session Manager Plugin (Mac)..."
 
-  if ! command -v brew >/dev/null 2>&1; then
-    echo "❌ Homebrew not found. Install from https://brew.sh"
-    exit 1
+  mkdir -p "$HOME/bin"
+
+  # Session Manager Plugin
+  curl -L "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/mac_arm64/sessionmanager-bundle.zip" \
+    -o "$HOME/sessionmanager-bundle.zip"
+
+  unzip -qo "$HOME/sessionmanager-bundle.zip" -d "$HOME"
+
+  cp "$HOME/sessionmanager-bundle/bin/session-manager-plugin" \
+    "$HOME/bin/session-manager-plugin"
+
+  chmod +x "$HOME/bin/session-manager-plugin"
+
+  # Add PATH
+  if ! grep -q 'export PATH="$HOME/bin:$PATH"' "$HOME/.zshrc" 2>/dev/null; then
+      echo 'export PATH="$HOME/bin:$PATH"' >> "$HOME/.zshrc"
   fi
 
-  brew update
+  # Cleanup
+  rm -rf \
+    "$HOME/aws" \
+    "$HOME/awscliv2.zip" \
+    "$HOME/sessionmanager-bundle" \
+    "$HOME/sessionmanager-bundle.zip"
 
-  brew list awscli >/dev/null 2>&1 || brew install awscli
-  brew list jq >/dev/null 2>&1 || brew install jq
-
-  if ! command -v session-manager-plugin >/dev/null 2>&1; then
-    brew install --cask session-manager-plugin
-  fi
+  log "✅ AWS CLI installed: $HOME/bin/aws"
+  log "✅ Session Manager Plugin installed: $HOME/bin/session-manager-plugin"
 }
 
-install_linux() {
-  log "🐧 Installing dependencies (Linux/WSL)..."
-
-  run_cmd "$SUDO apt update -y"
-  run_cmd "$SUDO apt install -y unzip curl jq"
-
-  if ! command -v aws >/dev/null 2>&1; then
-    log "⬇️ Installing AWS CLI..."
-    run_cmd "curl -s https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o awscliv2.zip"
-    run_cmd "unzip -q awscliv2.zip"
-    run_cmd "$SUDO ./aws/install"
-    run_cmd "rm -rf aws awscliv2.zip"
-  fi
-
-  if ! command -v session-manager-plugin >/dev/null 2>&1; then
-    log "⬇️ Installing Session Manager Plugin..."
-    run_cmd "curl -s https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb -o ssm.deb"
-    run_cmd "$SUDO dpkg -i ssm.deb"
-    run_cmd "rm -f ssm.deb"
-  fi
-}
-
-if [[ "$OS" == "mac" ]]; then
-  install_mac
-else
-  install_linux
-fi
+install_mac
 
 # ----------------------------
 # Install scripts
@@ -136,11 +79,11 @@ log "📦 Installing custom scripts..."
 
 install_script() {
   local SRC="$SCRIPT_DIR/$1"
-  local DEST="/usr/local/bin/$(basename "$1")"
+  local DEST="$HOME/bin/$(basename "$1")"
 
   if [ -f "$SRC" ]; then
-    run_cmd "$SUDO cp \"$SRC\" \"$DEST\""
-    run_cmd "$SUDO chmod +x \"$DEST\""
+    run_cmd "cp \"$SRC\" \"$DEST\""
+    run_cmd "chmod +x \"$DEST\""
     log "✅ Installed $(basename "$1")"
   else
     log "⚠️ Missing script: $SRC"
@@ -193,8 +136,6 @@ append_block() {
   local NAME="$1"
   local FILE="$2"
   local CONTENT="$3"
-
-  sed_inplace "/# >>> $NAME >>>/,/# <<< $NAME <<</d" "$FILE"
 
   {
     echo ""
@@ -255,19 +196,12 @@ start_ssm_setup() {
 start_ssm_setup
 '
 
-# ----------------------------
-# WSL CONFIG
-# ----------------------------
-if [[ "$OS" == "wsl" ]]; then
-  append_block "WSL_CONFIG" "$SHELL_FILE" '
-export BROWSER=wslview
-'
-fi
+
 
 # ----------------------------
 # PATH FIX
 # ----------------------------
-append_if_not_exists 'export PATH="/usr/local/bin:$PATH"' "$SHELL_FILE"
+append_if_not_exists 'export PATH="$HOME/bin:$PATH"' "$SHELL_FILE"
 
 # ----------------------------
 # DONE
