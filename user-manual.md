@@ -121,6 +121,8 @@ After pulling the latest changes, repeat the installation steps corresponding to
 
 # 🔐 AWS SSO Configuration (One-Time Setup)
 
+## UAT Account Configuration
+
 Open:
 
 * **Terminal** (macOS)
