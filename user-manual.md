@@ -278,7 +278,7 @@ If the command returns account details successfully, your SSO configuration is c
 
 ---
 
-# Prod Account Configuration
+## Prod Account Configuration
 
 ```bash
 aws configure sso
