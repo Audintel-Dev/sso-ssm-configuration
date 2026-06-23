@@ -144,12 +144,6 @@ Recommended values:
 uat
 ```
 
-or
-
-```text
-prod
-```
-
 Choose based on the environment you are configuring.
 
 ---
@@ -203,6 +197,146 @@ You will be prompted to choose an AWS account.
 Audintel@UAT, raghu@audintel.in (670307493739)
 ```
 
+---
+
+## Role Selection
+
+After selecting the account:
+
+1. Choose the AWS role assigned to you.
+2. Press Enter.
+
+---
+
+## Default Region
+
+```text
+us-east-1
+```
+
+---
+
+## CLI Output Format
+
+```text
+json
+```
+
+---
+
+## Profile Name
+
+When prompted:
+
+```text
+Profile name [xxxxx-xxxxx-xxxxxx-670307493739]:
+```
+
+Use:
+
+```text
+uat
+```
+
+matching the SSO Session Name you entered earlier.
+
+### Recommended
+
+```text
+uat
+```
+
+### Not Recommended
+
+```text
+XXXXX-XXXXX-XXXXXX-670307493739
+```
+
+Using shorter profile names makes commands easier to remember and maintain.
+
+---
+
+# ✅ Verify SSO Configuration
+
+```bash
+aws sts get-caller-identity --profile uat
+```
+
+Expected output:
+
+```json
+{
+  "UserId": "XXXXXXXXXXXX",
+  "Account": "XXXXXXXXXXXX",
+  "Arn": "arn:aws:sts::XXXXXXXXXXXX:assumed-role/..."
+}
+```
+
+If the command returns account details successfully, your SSO configuration is complete.
+
+---
+
+# Prod Account Configuration
+
+```bash
+aws configure sso
+```
+
+---
+
+## Configuration Values
+
+### SSO Session Name
+
+```text
+prod
+```
+
+---
+
+### SSO Start URL
+
+```text
+https://d-9f676488e3.awsapps.com/start
+```
+
+---
+
+### SSO Region
+
+```text
+ap-south-1
+```
+
+---
+
+### SSO Registration Scopes
+
+Press **Enter** to accept the default value:
+
+```text
+sso:account:access
+```
+
+---
+
+## Browser Authentication
+
+After completing the above steps:
+
+1. A browser window will open automatically.
+2. Click **Allow Access**.
+![Allow Access](browser.png "Allow Access")
+![Response](auth-res.png "Response")
+
+> ⚠️ If you select a different Google account, authentication may fail and return a **404 error**.
+
+---
+
+## AWS Account Selection
+
+You will be prompted to choose an AWS account.
+
 ### Production Account
 
 ```text
@@ -243,16 +377,8 @@ json
 When prompted:
 
 ```text
-Profile name [uat-DBA-permissions-670307493739]:
+Profile name [XXXXX-XXXXX-XXXXXXX-471201224424]:
 ```
-
-Use:
-
-```text
-uat
-```
-
-or
 
 ```text
 prod
@@ -263,17 +389,13 @@ matching the SSO Session Name you entered earlier.
 ### Recommended
 
 ```text
-uat
-```
-
-```text
 prod
 ```
 
 ### Not Recommended
 
 ```text
-uat-DBA-permissions-670307493739
+XXXXX-XXXXX-XXXXXXX-471201224424
 ```
 
 Using shorter profile names makes commands easier to remember and maintain.
@@ -281,14 +403,6 @@ Using shorter profile names makes commands easier to remember and maintain.
 ---
 
 # ✅ Verify SSO Configuration
-
-### UAT
-
-```bash
-aws sts get-caller-identity --profile uat
-```
-
-### Production
 
 ```bash
 aws sts get-caller-identity --profile prod
