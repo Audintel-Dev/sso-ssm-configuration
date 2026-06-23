@@ -316,6 +316,41 @@ You are now ready to:
 * Connect to EC2 instances via Session Manager (SSM)
 * Use the provided Audintel automation scripts and tooling
 
+---
+
+## ⚡ Available Shortcuts / Aliases
+
+| Command  | Description                           |
+| -------- | ------------------------------------- |
+| `uat`    | Connect to Linux UAT servers          |
+| `prod`   | Connect to Linux Production servers   |
+| `dbuat`  | Open tunnels for UAT databases        |
+| `dbprod` | Open tunnels for Production databases |
+| `dbpc`   | Check if ports are actively listening |
+
+Add an instance-name keyword after `uat` or `prod` to display only matching
+running Linux instances. The search is case-insensitive.
+
+```bash
+uat ai-parcel
+uat web
+prod report
+```
+
+---
+
+## 💡 Notes
+* If a command doesn’t work, try restarting the terminal.
+
+---
+
+# 🗄️ Database Connection Configuration
+
+*(DBeaver / Sequel Ace)*
+
+---
+
+
 ## 📌 Overview
 
 This setup allows you to connect to multiple databases using **local port forwarding**.
