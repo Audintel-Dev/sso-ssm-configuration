@@ -315,3 +315,100 @@ You are now ready to:
 * Access AWS resources using SSO
 * Connect to EC2 instances via Session Manager (SSM)
 * Use the provided Audintel automation scripts and tooling
+
+## 📌 Overview
+
+This setup allows you to connect to multiple databases using **local port forwarding**.
+
+* **Host:** `127.0.0.1` (for all connections)
+* **Differentiation:** Done using **unique local ports**
+
+---
+
+## 🔧 Database Port Mapping
+
+## 🗄️ Production Databases
+
+```ini
+[prod_databases]
+audinteldb     = 3411
+auspigroup     = 3412
+chrobinsondb   = 3413
+ffsdb          = 3414
+idrivedb       = 3415
+redwood        = 3416
+shiphawk       = 3417
+```
+
+---
+
+## 🧪 UAT Databases
+
+```ini
+[uat_databases]
+uat-aud1-encrypted = 3307
+uat-chr            = 3308
+uat-ffs            = 3309
+```
+---
+
+## 🔄 Customizing Ports
+
+* By default, ports are predefined (as shown above)
+* If a port is already in use on your local machine:
+
+### 👉 Steps to change port
+
+1. Navigate to your home directory
+2. Locate the file:
+
+   ```
+   ~/.rds-map
+   ```
+3. Update the port number as needed
+
+---
+
+## 🌐 Connection Details
+
+Use the following settings in **DBeaver** or **Sequel Ace**:
+
+| Setting  | Value                   |
+| -------- | ----------------------- |
+| Host     | `127.0.0.1`             |
+| Port     | As per mapping          |
+| DB Name  | Based on your selection |
+| User     | (your DB username)      |
+| Password | (your DB password)      |
+
+---
+
+## ⚠️ Important Configuration (DBeaver)
+
+In **DBeaver**, make sure to enable:
+
+```id="dbeaver-setting"
+allowPublicKeyRetrieval=true
+```
+
+👉 This is required for successful authentication in some MySQL setups.
+
+---
+
+## 💡 Notes
+
+* Each database runs on a **different local port**
+* All connections go through **localhost (127.0.0.1)**
+* Port forwarding must be active before connecting
+* Restart your DB client if changes are not reflected
+
+---
+
+## 🚀 Example
+
+To connect to **`ffsdb` (prod)**:
+
+* Host: `127.0.0.1`
+* Port: `3414`
+
+---
