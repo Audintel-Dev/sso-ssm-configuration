@@ -189,7 +189,7 @@ After completing the above steps:
 ![Allow Access](browser.png "Allow Access")
 ![Response](auth-res.png "Response")
 
-> ⚠️ If you select a different Google account, authentication may mail and return a **404 error**.
+> ⚠️ If you select a different Google account, authentication may fail and return a **404 error**.
 
 ---
 
