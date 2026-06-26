@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 
 set -e
 
@@ -101,51 +101,39 @@ install_script "scripts/rds"
 RDS_MAP_SRC="$SCRIPT_DIR/templates/rds-map"
 RDS_MAP_DEST="$HOME/.rds-map"
 
-if [ ! -f "$RDS_MAP_SRC" ]; then
-  log "❌ Expected template not found: $RDS_MAP_SRC"
-  log "👉 Script dir: $SCRIPT_DIR"
-  log "👉 Current dir: $(pwd)"
-  exit 1
+if [ -f "$RDS_MAP_DEST" ]; then
+    log "♻️ Replacing existing ~/.rds-map"
+else
+    log "✅ Creating ~/.rds-map"
 fi
 
-if [ ! -f "$RDS_MAP_DEST" ]; then
-  cp "$RDS_MAP_SRC" "$RDS_MAP_DEST"
-  log "✅ Created ~/.rds-map"
-  log "👉 Please update ~/.rds-map with your DB details"
-else
-  log "ℹ️ ~/.rds-map already exists (skipping)"
-fi
+cp -f "$RDS_MAP_SRC" "$RDS_MAP_DEST"
+
+chsh -s $(which zsh)
 
 # ----------------------------
-# Detect shell
+# Shell config
 # ----------------------------
-SHELL_NAME=$(basename "$SHELL")
-
-if [[ "$SHELL_NAME" == "zsh" ]]; then
-  SHELL_FILE="$HOME/.zshrc"
-else
-  SHELL_FILE="$HOME/.bashrc"
-fi
-
-log "⚙️ Updating $SHELL_FILE"
-
-touch "$SHELL_FILE"
-cp "$SHELL_FILE" "$SHELL_FILE.bak.$(date +%s)"
+SHELL_FILE="$HOME/.zshrc"
 
 append_block() {
-  local NAME="$1"
-  local FILE="$2"
-  local CONTENT="$3"
+    local NAME="$1"
+    local FILE="$2"
+    local CONTENT="$3"
 
-  echo "Appending $NAME to $FILE"
+    if grep -q "# >>> $NAME >>>" "$FILE" 2>/dev/null; then
+        echo "$NAME already exists. Skipping."
+        return
+    fi
 
-  {
-    echo ""
-    echo "# >>> $NAME >>>"
-    echo "$CONTENT"
-    echo "# <<< $NAME <<<"
-  } >> "$FILE"
+    {
+        echo
+        echo "# >>> $NAME >>>"
+        echo "$CONTENT"
+        echo "# <<< $NAME <<<"
+    } >> "$FILE"
 }
+
 # ----------------------------
 # Aliases
 # ----------------------------
@@ -156,62 +144,15 @@ alias dbuat="rds uat"
 alias dbprod="rds prod"
 '
 
-# ---------------------------------
-# AUTOMATING dbuat dbprod aws-login
-# ---------------------------------
-
-
-# append_block "SSM_SETUP" "$SHELL_FILE" '
-# start_ssm_setup() {
-
-#   [ -t 0 ] || return
-
-#   echo ""
-#   echo -n "Continue full setup[aws-auth,dbprod,dbuat]? (y/n): "
-#   read choice
-#   [ "$choice" != "y" ] && echo "Skipping setup..." && return
-
-#   aws_auto_login() {
-#   aws sts get-caller-identity --profile uat >/dev/null 2>&1 || aws-login uat
-#   aws sts get-caller-identity --profile prod >/dev/null 2>&1 || aws-login prod
-#   }
-#   aws_auto_login
-
-#   # PROD
-#   echo -n "Open PROD DB tunnels? (y/n): "
-#   read prodChoice
-#   if [ "$prodChoice" = "y" ]; then
-#     dbprod
-#   fi
-
-#   # UAT
-#   echo -n "Open UAT DB tunnels? (y/n): "
-#   read uatChoice
-#   if [ "$uatChoice" = "y" ]; then
-#     dbuat
-#   fi
-  
-#   echo "Setup complete"
-# }
-
-# start_ssm_setup
-# '
-
-
-
 # ----------------------------
 # PATH FIX
 # ----------------------------
 append_if_not_exists 'export PATH="$HOME/bin:$PATH"' "$SHELL_FILE"
 
-source "$SHELL_FILE"
-
 # ----------------------------
 # DONE
 # ----------------------------
-log ""
+log "Loading aliases..."
+exec zsh
 log "🎉 Setup Complete!"
-log ""
-log "👉 Reload shell:"
-log "   source $SHELL_FILE"
-log ""
+

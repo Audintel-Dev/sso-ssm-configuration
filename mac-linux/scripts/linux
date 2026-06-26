@@ -116,14 +116,30 @@ fi
 echo "Using login user: $TARGET_USER"
 
 # ── Build CLEAN PS1 (no color, no emoji) ──────────────────
+# RC_CONTENT="# SSM_PROMPT_INJECTED
+# unset PROMPT_COMMAND
+# unset color_prompt
+# unset force_color_prompt
+
+# # Disable terminal control sequences
+# bind 'set enable-bracketed-paste off' 2>/dev/null || true
+# export TERM=dumb
+
+# export PS1=\"[${PROFILE}][${INSTANCE_NAME}] [\\u@\\h \\W]\\\\$ \""
+
+# B64=$(printf '%s' "$RC_CONTENT" | base64 | tr -d '\n')
+
 RC_CONTENT="# SSM_PROMPT_INJECTED
+
 unset PROMPT_COMMAND
 unset color_prompt
 unset force_color_prompt
 
-# Disable terminal control sequences
 bind 'set enable-bracketed-paste off' 2>/dev/null || true
-export TERM=dumb
+
+if [ -z \"$TERM\" ] || [ \"$TERM\" = \"dumb\" ]; then
+    export TERM=xterm-256color
+fi
 
 export PS1=\"[${PROFILE}][${INSTANCE_NAME}] [\\u@\\h \\W]\\\\$ \""
 
